@@ -1,0 +1,157 @@
+import { ThemeTokens } from "theme.slint";
+import { ParseArtifactItem, CollectionSurfaceItem, CollectionActivityDetailItem, CollectionActivityItem, DriveItem } from "models.slint";
+import { CollectionPage } from "pages/collection_page.slint";
+import { AboutDialog } from "dialogs/about_dialog.slint";
+import { EvidenceScopeDialog } from "dialogs/evidence_scope_dialog.slint";
+import { SettingsDialog } from "dialogs/settings_dialog.slint";
+import { UsnSettingsDialog } from "dialogs/usn_settings_dialog.slint";
+
+export { ThemeTokens } from "theme.slint";
+export { ParseArtifactItem, CollectionSurfaceItem, CollectionActivityDetailItem, CollectionActivityItem, DriveItem } from "models.slint";
+
+export component AppWindow inherits Window {
+    title: "Holo Forensics";
+    icon: ThemeTokens.dark ? @image-url("../assets/holoForensicsLogoDark.svg") : @image-url("../assets/holoForensicsLogo.svg");
+    min-width: 620px;
+    min-height: 540px;
+    preferred-width: 1000px;
+    preferred-height: 720px;
+    background: ThemeTokens.base;
+    default-font-family: "Figtree";
+    default-font-size: 14px;
+
+    in-out property <int> collection-profile: 0;
+    in-out property <string> collection-archive-path;
+    in-out property <string> collection-output-filename;
+    in property <[DriveItem]> collection-drives;
+    in-out property <bool> collection-source-supported: true;
+    in-out property <string> collection-source-summary;
+    in-out property <int> collection-usn-mode: 2;
+    in-out property <int> collection-usn-chunk-index: 1;
+    in-out property <bool> collection-sparse: false;
+    in-out property <bool> collection-elevate: true;
+    in-out property <bool> custom-usn-selected: true;
+    in-out property <bool> collection-running: false;
+    in-out property <bool> about-open: false;
+    in-out property <bool> settings-open: false;
+    in-out property <bool> evidence-scope-open: false;
+    in-out property <bool> collection-usn-settings-open: false;
+    in-out property <string> collection-status;
+    in-out property <string> collection-activity-summary;
+    in-out property <bool> collection-activity-pulse: false;
+    in-out property <string> collection-log;
+    in property <[CollectionSurfaceItem]> collection-catalog;
+    in property <[CollectionActivityItem]> collection-activity-items;
+    in-out property <string> collection-activity-detail-title;
+    in-out property <string> collection-activity-detail-status;
+    in-out property <string> collection-activity-detail-summary;
+    in property <[CollectionActivityDetailItem]> collection-activity-detail-items;
+    in-out property <string> selected-collection-title;
+    in-out property <string> selected-collection-category;
+    in-out property <string> selected-collection-status;
+    in-out property <string> selected-collection-summary;
+    in-out property <string> selected-collection-targets;
+    in-out property <string> selected-collection-note;
+    in-out property <bool> selected-collection-live: false;
+
+    in-out property <string> parse-archive-path;
+    in-out property <string> parse-output-path;
+    in-out property <bool> use-elasticsearch: false;
+    in-out property <bool> parse-inspecting: false;
+    in-out property <bool> parse-running: false;
+    in-out property <float> parse-progress-value: 0;
+    in-out property <string> parse-status;
+    in-out property <string> parse-summary;
+    in-out property <string> parse-log;
+    in property <[ParseArtifactItem]> detected-artifacts;
+
+    in-out property <string> elasticsearch-url;
+    in-out property <string> elasticsearch-username;
+    in-out property <string> elasticsearch-password;
+    in-out property <string> elasticsearch-index;
+    in-out property <bool> elasticsearch-insecure: false;
+
+    callback persist-settings-requested();
+    callback browse-collection-directory-requested();
+    callback select-drive-requested(int);
+    callback inspect-archive-requested();
+    callback select-collection-requested(int);
+    callback select-all-collections-requested();
+    callback deselect-all-collections-requested();
+    callback select-collection-activity-requested(int);
+    callback toggle-detected-artifact(int);
+    callback run-parse-requested();
+    callback run-collection-requested();
+
+    Rectangle {
+        width: root.width;
+        height: root.height;
+        background: ThemeTokens.base;
+
+        CollectionPage {
+            width: parent.width;
+            height: parent.height;
+            collection-profile <=> root.collection-profile;
+            collection-archive-path: root.collection-archive-path;
+            collection-output-filename: root.collection-output-filename;
+            collection-drives: root.collection-drives;
+            collection-source-supported: root.collection-source-supported;
+            collection-source-summary: root.collection-source-summary;
+            collection-running: root.collection-running;
+            collection-status: root.collection-status;
+            collection-activity-summary: root.collection-activity-summary;
+            collection-activity-pulse: root.collection-activity-pulse;
+            collection-log: root.collection-log;
+            collection-activity-items: root.collection-activity-items;
+            collection-activity-detail-title: root.collection-activity-detail-title;
+            collection-activity-detail-status: root.collection-activity-detail-status;
+            collection-activity-detail-summary: root.collection-activity-detail-summary;
+            collection-activity-detail-items: root.collection-activity-detail-items;
+
+            open-settings-requested => { root.settings-open = true; }
+            open-about-requested => { root.about-open = true; }
+            persist-settings-requested => { root.persist-settings-requested(); }
+            review-scope-requested => { root.evidence-scope-open = true; }
+            browse-collection-directory-requested => { root.browse-collection-directory-requested(); }
+            select-drive-requested(index) => { root.select-drive-requested(index); }
+            run-collection-requested => { root.run-collection-requested(); }
+            select-collection-activity-requested(index) => { root.select-collection-activity-requested(index); }
+        }
+
+        if root.evidence-scope-open : EvidenceScopeDialog {
+            width: parent.width;
+            height: parent.height;
+            collection-profile: root.collection-profile;
+            collection-catalog: root.collection-catalog;
+            close-requested => { root.evidence-scope-open = false; }
+            select-collection-requested(index) => { root.select-collection-requested(index); }
+            select-all-requested => { root.select-all-collections-requested(); }
+            deselect-all-requested => { root.deselect-all-collections-requested(); }
+            open-collection-settings-requested => { root.collection-usn-settings-open = true; }
+        }
+
+        if root.collection-usn-settings-open : UsnSettingsDialog {
+            width: parent.width;
+            height: parent.height;
+            collection-usn-mode <=> root.collection-usn-mode;
+            collection-usn-chunk-index <=> root.collection-usn-chunk-index;
+            collection-sparse <=> root.collection-sparse;
+            close-requested => { root.collection-usn-settings-open = false; }
+            persist-settings-requested => { root.persist-settings-requested(); }
+        }
+
+        if root.settings-open : SettingsDialog {
+            width: parent.width;
+            height: parent.height;
+            collection-elevate <=> root.collection-elevate;
+            close-requested => { root.settings-open = false; }
+            persist-settings-requested => { root.persist-settings-requested(); }
+        }
+
+        if root.about-open : AboutDialog {
+            width: parent.width;
+            height: parent.height;
+            close-requested => { root.about-open = false; }
+        }
+    }
+}

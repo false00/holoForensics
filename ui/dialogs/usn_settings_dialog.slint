@@ -1,0 +1,118 @@
+import { ThemeTokens } from "../theme.slint";
+import { CardPanel, GhostButton, HelperText, PrimaryButton, SectionLabel, SelectField, ToggleChip } from "../components.slint";
+
+export component UsnSettingsDialog inherits Rectangle {
+    in-out property <int> collection-usn-mode: 2;
+    in-out property <int> collection-usn-chunk-index: 1;
+    in-out property <bool> collection-sparse: false;
+
+    callback close-requested();
+    callback persist-settings-requested();
+
+    background: ThemeTokens.overlay;
+
+    CardPanel {
+        width: min(520px, parent.width - 48px);
+        height: min(388px, parent.height - 48px);
+        x: (parent.width - min(520px, parent.width - 48px)) / 2;
+        y: (parent.height - self.height) / 2;
+        background: ThemeTokens.card;
+
+        VerticalLayout {
+            width: parent.width;
+            height: parent.height;
+            padding: 18px;
+            spacing: 14px;
+
+            HorizontalLayout {
+                spacing: 12px;
+
+                VerticalLayout {
+                    spacing: 4px;
+                    horizontal-stretch: 1;
+
+                    SectionLabel { text: "JOURNAL SETTINGS"; }
+
+                    Text {
+                        text: "$UsnJrnl";
+                        color: ThemeTokens.text;
+                        font-family: "Tomorrow";
+                        font-size: 26px;
+                        font-weight: 300;
+                        overflow: elide;
+                    }
+                }
+
+                GhostButton {
+                    width: 96px;
+                    label: "Close";
+                    clicked => { root.close-requested(); }
+                }
+            }
+
+            HelperText {
+                horizontal-stretch: 1;
+                height: 30px;
+                text: "Tune how the live collector reads and stages the journal.";
+            }
+
+            SelectField {
+                horizontal-stretch: 1;
+                placeholder: "Acquisition method";
+                items: ["Direct live read", "Snapshot preferred", "Raw filesystem"];
+                selected-index <=> root.collection-usn-mode;
+                activated(index) => {
+                    if index != 2 {
+                        root.collection-sparse = false;
+                    }
+                    root.persist-settings-requested();
+                }
+            }
+
+            SelectField {
+                horizontal-stretch: 1;
+                placeholder: "Read chunk size";
+                items: ["1 MiB", "4 MiB", "8 MiB", "16 MiB", "32 MiB"];
+                selected-index <=> root.collection-usn-chunk-index;
+                activated(index) => { root.persist-settings-requested(); }
+            }
+
+            HorizontalLayout {
+                height: 34px;
+                spacing: 12px;
+
+                ToggleChip {
+                    width: 150px;
+                    label: "Sparse layout";
+                    enabled: root.collection-usn-mode == 2;
+                    checked <=> root.collection-sparse;
+                    toggled(value) => { root.persist-settings-requested(); }
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+            }
+
+            HelperText {
+                horizontal-stretch: 1;
+                height: 32px;
+                text: root.collection-usn-mode == 2 ? "Sparse layout is available only for the raw filesystem path." : "Sparse layout is unavailable for the selected acquisition method.";
+            }
+
+            HorizontalLayout {
+                height: 36px;
+                spacing: 12px;
+
+                Rectangle { horizontal-stretch: 1; }
+
+                PrimaryButton {
+                    width: 124px;
+                    label: "Done";
+                    clicked => {
+                        root.persist-settings-requested();
+                        root.close-requested();
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,29 @@
+name: Notify Homepage on Wiki Change
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'holoForensics.wiki/**'
+      - 'README.md'
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger holoForensics-homepage rebuild
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        with:
+          github-token: ${{ secrets.HOMEPAGE_DISPATCH_TOKEN }}
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: 'false00',
+              repo: 'holoForensics-homepage',
+              event_type: 'wiki-updated',
+              client_payload: {
+                sha: context.sha,
+                ref: context.ref,
+              },
+            });
+            core.info('Dispatched wiki-updated to holoForensics-homepage');

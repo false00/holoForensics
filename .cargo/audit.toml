@@ -1,0 +1,9 @@
+[advisories]
+ignore = [
+    # Transitive through Slint's compiler stack. Keep the audit job strict, but
+    # track this upstream warning until Slint moves off bincode internally.
+    "RUSTSEC-2025-0141",
+    # Transitive through notatin and Slint/image. Keep reviewing on dependency
+    # updates; currently no direct compatible replacement is available here.
+    "RUSTSEC-2024-0436",
+]

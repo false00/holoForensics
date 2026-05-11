@@ -1,0 +1,43 @@
+export struct ParseArtifactItem {
+    id: string,
+    title: string,
+    subtitle: string,
+    detail: string,
+    selected: bool,
+}
+
+export struct CollectionSurfaceItem {
+    title: string,
+    category: string,
+    status: string,
+    summary: string,
+    targets: string,
+    selected: bool,
+    live: bool,
+    configurable: bool,
+}
+
+export struct CollectionActivityItem {
+    title: string,
+    category: string,
+    detail: string,
+    status: string,
+    tone: int,
+    active: bool,
+    show_progress: bool,
+    progress_value: float,
+    progress_text: string,
+    package_pending: bool,
+}
+
+export struct CollectionActivityDetailItem {
+    name: string,
+    state: string,
+    detail: string,
+}
+
+export struct DriveItem {
+    volume: string,
+    filesystem: string,
+    selected: bool,
+}

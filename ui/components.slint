@@ -1,0 +1,899 @@
+import { ThemeTokens } from "theme.slint";
+import { ScrollView } from "std-widgets.slint";
+
+export component SectionLabel inherits Text {
+    color: ThemeTokens.muted;
+    font-family: "Figtree";
+    font-size: 10px;
+    font-weight: 500;
+}
+
+export component FieldLabel inherits Text {
+    width: 78px;
+    color: ThemeTokens.placeholder;
+    font-family: "Figtree";
+    font-size: 11px;
+    font-weight: 500;
+    vertical-alignment: center;
+}
+
+export component HelperText inherits Text {
+    color: ThemeTokens.muted;
+    font-family: "Figtree";
+    font-size: 12px;
+    font-weight: 400;
+    wrap: word-wrap;
+}
+
+export component InfoLine inherits Text {
+    color: ThemeTokens.muted;
+    font-family: "Figtree";
+    font-size: 12px;
+    font-weight: 400;
+    overflow: elide;
+}
+
+export component CardPanel inherits Rectangle {
+    border-radius: ThemeTokens.radius-large;
+    border-width: 1px;
+    border-color: ThemeTokens.stroke;
+    background: ThemeTokens.card;
+    clip: true;
+
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 22px;
+        height: 2px;
+        background: ThemeTokens.primary.with-alpha(0.62);
+    }
+
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 2px;
+        height: 22px;
+        background: ThemeTokens.primary.with-alpha(0.62);
+    }
+
+    Rectangle {
+        x: 10px;
+        y: 10px;
+        width: 14px;
+        height: 2px;
+        background: ThemeTokens.risk.with-alpha(0.72);
+    }
+
+    Rectangle {
+        x: parent.width - 23px;
+        y: parent.height - 2px;
+        width: 22px;
+        height: 2px;
+        background: ThemeTokens.copal.with-alpha(0.68);
+    }
+
+    Rectangle {
+        x: parent.width - 2px;
+        y: parent.height - 23px;
+        width: 2px;
+        height: 22px;
+        background: ThemeTokens.copal.with-alpha(0.68);
+    }
+
+    Rectangle {
+        x: parent.width - 24px;
+        y: parent.height - 12px;
+        width: 14px;
+        height: 2px;
+        background: ThemeTokens.risk.with-alpha(0.72);
+    }
+}
+
+export component CodexBand inherits Rectangle {
+    in property <bool> compact: false;
+
+    height: 6px;
+    background: transparent;
+
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: 1px;
+        background: ThemeTokens.stroke;
+    }
+
+    Rectangle {
+        x: 0px;
+        y: 2px;
+        width: max(42px, parent.width * 0.22);
+        height: 4px;
+        background: ThemeTokens.primary;
+    }
+
+    Rectangle {
+        x: max(44px, parent.width * 0.22);
+        y: 2px;
+        width: root.compact ? 18px : 28px;
+        height: 4px;
+        background: ThemeTokens.risk;
+    }
+
+    Rectangle {
+        x: max(64px, parent.width * 0.22 + (root.compact ? 20px : 30px));
+        y: 2px;
+        width: root.compact ? 12px : 18px;
+        height: 4px;
+        background: ThemeTokens.warning;
+    }
+
+    Rectangle {
+        x: parent.width - max(56px, parent.width * 0.16);
+        y: 2px;
+        width: max(26px, parent.width * 0.08);
+        height: 4px;
+        background: ThemeTokens.carmine;
+    }
+
+    Rectangle {
+        x: parent.width - max(28px, parent.width * 0.08);
+        y: 2px;
+        width: max(28px, parent.width * 0.08);
+        height: 4px;
+        background: ThemeTokens.risk;
+    }
+}
+
+export component Badge inherits Rectangle {
+    in property <string> label;
+
+    height: 26px;
+    border-radius: 13px;
+    border-width: 1px;
+    border-color: ThemeTokens.stroke;
+    background: ThemeTokens.panel;
+
+    Text {
+        text: root.label;
+        color: ThemeTokens.text;
+        font-family: "Figtree";
+        font-size: 11px;
+        font-weight: 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+export component NavTab inherits Rectangle {
+    in property <string> label;
+    in property <string> detail;
+    in property <bool> active: false;
+    callback clicked();
+
+    height: 72px;
+    border-radius: ThemeTokens.radius-large;
+    border-width: 1px;
+    border-color: root.active ? ThemeTokens.primary : transparent;
+    background: touch.has-hover || root.active ? ThemeTokens.accent-soft : transparent;
+    animate background { duration: 100ms; }
+    animate border-color { duration: 100ms; }
+
+    HorizontalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 12px;
+
+        Rectangle {
+            width: 10px;
+            height: 10px;
+            border-radius: 5px;
+            background: root.active ? ThemeTokens.primary : ThemeTokens.stroke;
+            y: 23px;
+        }
+
+        VerticalLayout {
+            alignment: start;
+            spacing: 4px;
+            vertical-stretch: 1;
+
+            Text {
+                text: root.label;
+                color: ThemeTokens.text;
+                font-family: "Tomorrow";
+                font-size: 18px;
+                font-weight: 300;
+            }
+
+            Text {
+                text: root.detail;
+                color: ThemeTokens.muted;
+                font-family: "Figtree";
+                font-size: 12px;
+                font-weight: 400;
+                wrap: word-wrap;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component PrimaryButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <brush> fill: ThemeTokens.primary;
+    in property <brush> hover-fill: ThemeTokens.primary-hover;
+    in property <brush> stroke: ThemeTokens.primary.with-alpha(0.72);
+    in property <brush> foreground: #FFFFFF;
+    callback clicked();
+
+    height: 38px;
+    border-radius: ThemeTokens.radius-medium;
+    border-width: 1px;
+    border-color: root.stroke;
+    background: touch.enabled && touch.has-hover ? root.hover-fill : root.fill;
+    opacity: enabled ? 1 : 0.45;
+    animate background { duration: 100ms; }
+    clip: true;
+
+    Text {
+        text: root.label;
+        color: root.foreground;
+        font-family: "Figtree";
+        font-size: 12px;
+        font-weight: 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component GhostButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <brush> foreground: ThemeTokens.text;
+    in property <brush> fill: ThemeTokens.panel;
+    in property <brush> hover-fill: ThemeTokens.accent-soft;
+    in property <brush> stroke: ThemeTokens.stroke;
+    callback clicked();
+
+    height: 38px;
+    border-radius: ThemeTokens.radius-medium;
+    border-width: 1px;
+    border-color: root.stroke;
+    background: touch.enabled && touch.has-hover ? root.hover-fill : root.fill;
+    opacity: enabled ? 1 : 0.45;
+    animate background { duration: 100ms; }
+    clip: true;
+
+    Text {
+        text: root.label;
+        color: root.foreground;
+        font-family: "Figtree";
+        font-size: 12px;
+        font-weight: 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component ProgressBar inherits Rectangle {
+    in property <float> value: 0;
+    in property <color> fill: ThemeTokens.primary;
+    in property <color> track: ThemeTokens.panel;
+
+    height: 6px;
+    border-radius: 4px;
+    background: root.track;
+
+    Rectangle {
+        width: max(0px, parent.width * min(1.0, max(0.0, root.value)));
+        height: parent.height;
+        border-radius: 4px;
+        background: root.fill;
+        animate width { duration: 240ms; }
+    }
+}
+
+export component Field inherits Rectangle {
+    in property <string> placeholder;
+    in-out property <string> value <=> input.text;
+    in property <bool> enabled: true;
+    in property <bool> password: false;
+
+    height: 38px;
+    border-radius: ThemeTokens.radius-medium;
+    border-width: 1px;
+    border-color: input.has-focus ? ThemeTokens.primary : ThemeTokens.stroke;
+    background: ThemeTokens.surface;
+    clip: true;
+    animate border-color { duration: 100ms; }
+
+    Text {
+        x: 12px;
+        y: 0px;
+        width: parent.width - 24px;
+        height: parent.height;
+        text: root.placeholder;
+        color: ThemeTokens.placeholder;
+        font-family: "Figtree";
+        font-size: 13px;
+        font-weight: 400;
+        vertical-alignment: center;
+        visible: root.value == "" && !input.has-focus;
+    }
+
+    input := TextInput {
+        x: 12px;
+        y: 0px;
+        width: parent.width - 24px;
+        height: parent.height;
+        color: ThemeTokens.text;
+        font-family: "Figtree";
+        font-size: 13px;
+        font-weight: 400;
+        vertical-alignment: center;
+        single-line: true;
+        enabled: root.enabled;
+        input-type: root.password ? InputType.password : InputType.text;
+        selection-background-color: ThemeTokens.primary;
+        selection-foreground-color: ThemeTokens.text;
+    }
+}
+
+export component ToggleChip inherits Rectangle {
+    in property <string> label;
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    callback toggled(bool);
+
+    height: 30px;
+    border-radius: 16px;
+    border-width: 1px;
+    border-color: checked ? ThemeTokens.primary : ThemeTokens.stroke;
+    background: checked ? ThemeTokens.primary.with-alpha(0.16) : ThemeTokens.surface;
+    opacity: enabled ? 1 : 0.5;
+    animate background { duration: 100ms; }
+
+    Text {
+        text: root.label;
+        color: checked ? ThemeTokens.text : ThemeTokens.muted;
+        font-family: "Figtree";
+        font-size: 12px;
+        font-weight: 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    TouchArea {
+        width: parent.width;
+        height: parent.height;
+        enabled: root.enabled;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
+    }
+}
+
+export component SelectField inherits Rectangle {
+    in property <string> placeholder;
+    in property <[string]> items;
+    in-out property <int> selected-index: -1;
+    callback activated(int);
+
+    height: 38px;
+    border-radius: ThemeTokens.radius-medium;
+    border-width: 1px;
+    border-color: ThemeTokens.stroke;
+    background: ThemeTokens.surface;
+
+    Text {
+        x: 12px;
+        y: 0px;
+        width: parent.width - 34px;
+        height: parent.height;
+        text: root.selected-index >= 0 && root.selected-index < root.items.length ? root.items[root.selected-index] : root.placeholder;
+        color: root.selected-index >= 0 ? ThemeTokens.text : ThemeTokens.placeholder;
+        font-family: "Figtree";
+        font-size: 13px;
+        font-weight: 400;
+        vertical-alignment: center;
+    }
+
+    Path {
+        x: parent.width - 18px;
+        y: 14px;
+        width: 10px;
+        height: 10px;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: 10;
+        viewbox-height: 10;
+        stroke: ThemeTokens.muted;
+        stroke-width: 1.4px;
+        fill: transparent;
+        commands: "M 1 3 L 5 7 L 9 3";
+    }
+
+    popup := PopupWindow {
+        x: 0px;
+        y: 44px;
+        width: root.width;
+        height: min(208px, root.items.length * 34px + 12px);
+        close-policy: close-on-click-outside;
+
+        CardPanel {
+            width: 100%;
+            height: 100%;
+
+            ScrollView {
+                x: 6px;
+                y: 6px;
+                width: parent.width - 12px;
+                height: parent.height - 12px;
+
+                VerticalLayout {
+                    spacing: 4px;
+
+                    for item[index] in root.items : Rectangle {
+                        height: 30px;
+                        border-radius: ThemeTokens.radius-small;
+                        background: hover.has-hover || index == root.selected-index ? ThemeTokens.panel : transparent;
+                        animate background { duration: 100ms; }
+
+                        Text {
+                            x: 10px;
+                            y: 0px;
+                            width: parent.width - 20px;
+                            height: parent.height;
+                            text: item;
+                            color: index == root.selected-index ? ThemeTokens.text : ThemeTokens.muted;
+                            font-family: "Figtree";
+                            font-size: 13px;
+                            font-weight: 400;
+                            vertical-alignment: center;
+                        }
+
+                        hover := TouchArea {
+                            clicked => {
+                                root.selected-index = index;
+                                root.activated(index);
+                                popup.close();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => { popup.show(); }
+    }
+}
+
+export component ReadOnlyField inherits Rectangle {
+    in property <string> value;
+    in property <string> placeholder;
+
+    height: 38px;
+    border-radius: ThemeTokens.radius-medium;
+    border-width: 1px;
+    border-color: ThemeTokens.stroke;
+    background: ThemeTokens.surface;
+    clip: true;
+
+    Text {
+        x: 12px;
+        y: 0px;
+        width: parent.width - 24px;
+        height: parent.height;
+        text: root.value == "" ? root.placeholder : root.value;
+        color: root.value == "" ? ThemeTokens.placeholder : ThemeTokens.text;
+        font-family: "Figtree";
+        font-size: 13px;
+        font-weight: 400;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+export component SelectionRow inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle;
+    in property <string> detail;
+    in property <bool> checked;
+    in property <bool> enabled: true;
+    callback toggled();
+
+    height: 112px;
+    border-radius: ThemeTokens.radius-large;
+    border-width: 1px;
+    border-color: checked ? ThemeTokens.primary : ThemeTokens.stroke;
+    background: touch.enabled && touch.has-hover ? ThemeTokens.accent-soft : ThemeTokens.card;
+    opacity: enabled ? 1 : 0.55;
+    animate background { duration: 100ms; }
+    animate border-color { duration: 100ms; }
+
+    HorizontalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding: 14px;
+        spacing: 12px;
+
+        Rectangle {
+            width: 22px;
+            height: 22px;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: root.checked ? ThemeTokens.primary : ThemeTokens.stroke;
+            background: root.checked ? ThemeTokens.primary : ThemeTokens.panel;
+
+            Path {
+                visible: root.checked;
+                x: 6px;
+                y: 6px;
+                width: 10px;
+                height: 10px;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: 10;
+                viewbox-height: 10;
+                stroke: #FFFFFF;
+                stroke-width: 1.6px;
+                fill: transparent;
+                commands: "M 1 5 L 4 8 L 9 1";
+            }
+        }
+
+        VerticalLayout {
+            spacing: 4px;
+            horizontal-stretch: 1;
+
+            Text {
+                text: root.title;
+                color: ThemeTokens.text;
+                font-family: "Figtree";
+                font-size: 14px;
+                font-weight: 500;
+            }
+
+            Text {
+                text: root.subtitle;
+                color: ThemeTokens.muted;
+                font-family: "Figtree";
+                font-size: 12px;
+                font-weight: 400;
+                wrap: word-wrap;
+            }
+
+            Text {
+                text: root.detail;
+                color: ThemeTokens.placeholder;
+                font-family: "Figtree";
+                font-size: 12px;
+                font-weight: 400;
+                wrap: word-wrap;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        enabled: root.enabled;
+        clicked => { root.toggled(); }
+    }
+}
+
+export component CollectionSurfaceCard inherits Rectangle {
+    in property <string> category;
+    in property <string> title;
+    in property <string> status;
+    in property <string> summary;
+    in property <string> targets;
+    in property <bool> selected: false;
+    in property <bool> live: false;
+    in property <bool> configurable: false;
+    callback clicked();
+    callback settings-clicked();
+
+    height: 56px;
+    border-radius: ThemeTokens.radius-medium;
+    border-width: 1px;
+    border-color: root.selected ? ThemeTokens.primary.with-alpha(0.55) : root.live ? ThemeTokens.success.with-alpha(0.45) : touch.has-hover ? ThemeTokens.primary.with-alpha(0.28) : ThemeTokens.stroke;
+    background: touch.has-hover ? ThemeTokens.accent-soft : ThemeTokens.card;
+    animate background { duration: 100ms; }
+    animate border-color { duration: 100ms; }
+
+    touch := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => { root.clicked(); }
+    }
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-top: 6px;
+        padding-bottom: 6px;
+        spacing: 2px;
+
+        HorizontalLayout {
+            height: 24px;
+            spacing: 10px;
+
+            Rectangle {
+                width: 18px;
+                height: 18px;
+                y: 3px;
+                border-radius: 4px;
+                border-width: 1px;
+                border-color: root.selected ? ThemeTokens.primary : ThemeTokens.stroke;
+                background: root.selected ? ThemeTokens.primary : ThemeTokens.panel;
+
+                Path {
+                    visible: root.selected;
+                    x: 4px;
+                    y: 4px;
+                    width: 10px;
+                    height: 10px;
+                    viewbox-x: 0;
+                    viewbox-y: 0;
+                    viewbox-width: 10;
+                    viewbox-height: 10;
+                    stroke: #FFFFFF;
+                    stroke-width: 1.6px;
+                    fill: transparent;
+                    commands: "M 1 5 L 4 8 L 9 1";
+                }
+            }
+
+            Text {
+                horizontal-stretch: 1;
+                text: root.title;
+                color: ThemeTokens.text;
+                font-family: "Figtree";
+                font-size: 13px;
+                font-weight: 500;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            Rectangle {
+                width: root.configurable ? 54px : 0px;
+                height: 24px;
+                border-radius: 12px;
+                border-width: root.configurable ? 1px : 0px;
+                border-color: settings-touch.has-hover ? ThemeTokens.primary.with-alpha(0.65) : ThemeTokens.stroke;
+                background: settings-touch.has-hover ? ThemeTokens.accent-soft : ThemeTokens.panel;
+                visible: root.configurable;
+
+                Text {
+                    text: "Tune";
+                    color: ThemeTokens.text;
+                    font-family: "Figtree";
+                    font-size: 11px;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                settings-touch := TouchArea {
+                    width: parent.width;
+                    height: parent.height;
+                    enabled: root.configurable;
+                    clicked => { root.settings-clicked(); }
+                }
+            }
+
+            Rectangle {
+                width: 82px;
+                height: 24px;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: root.live ? ThemeTokens.success.with-alpha(0.45) : root.selected ? ThemeTokens.primary.with-alpha(0.45) : ThemeTokens.stroke;
+                background: root.live ? ThemeTokens.success.with-alpha(0.12) : root.selected ? ThemeTokens.primary.with-alpha(0.12) : ThemeTokens.panel;
+
+                Text {
+                    text: root.status;
+                    color: root.live ? ThemeTokens.success : root.selected ? ThemeTokens.text : ThemeTokens.muted;
+                    font-family: "Figtree";
+                    font-size: 11px;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
+
+        InfoLine {
+            horizontal-stretch: 1;
+            height: 16px;
+            text: root.category;
+            color: ThemeTokens.muted;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component CollectionActivityRow inherits Rectangle {
+    in property <string> category;
+    in property <string> title;
+    in property <string> detail;
+    in property <string> status;
+    in property <int> tone: 0;
+    in property <bool> active: false;
+    in property <bool> show-progress: false;
+    in property <float> progress-value: 0;
+    in property <string> progress-text;
+    in property <bool> package-pending: false;
+    in property <bool> animation-pulse: false;
+    callback clicked();
+
+    private property <color> accent-color: root.tone == 5 ? ThemeTokens.risk : root.tone == 4 ? ThemeTokens.success : root.tone == 3 ? (ThemeTokens.dark ? ThemeTokens.primary-hover : ThemeTokens.primary) : root.tone == 2 ? ThemeTokens.warning : root.tone == 1 ? (ThemeTokens.dark ? ThemeTokens.primary-hover : ThemeTokens.primary).with-alpha(0.82) : ThemeTokens.stroke;
+    private property <color> accent-soft: root.tone == 5 ? ThemeTokens.risk.with-alpha(0.12) : root.tone == 4 ? ThemeTokens.success.with-alpha(0.12) : root.tone == 3 ? ThemeTokens.primary.with-alpha(0.14) : root.tone == 2 ? ThemeTokens.warning.with-alpha(0.12) : root.tone == 1 ? ThemeTokens.primary.with-alpha(0.10) : ThemeTokens.panel;
+    private property <color> card-fill: root.package-pending && root.animation-pulse ? root.accent-soft : root.active ? root.accent-soft : root.tone == 4 ? ThemeTokens.success.with-alpha(0.08) : ThemeTokens.card;
+
+    height: root.show-progress ? 88px : 70px;
+    border-radius: ThemeTokens.radius-medium;
+    border-width: 1px;
+    border-color: root.tone == 0 ? ThemeTokens.stroke : root.active ? root.accent-color.with-alpha(0.62) : root.accent-color.with-alpha(0.42);
+    background: root.card-fill;
+    clip: true;
+    animate background { duration: 120ms; }
+    animate border-color { duration: 120ms; }
+
+    touch := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => { root.clicked(); }
+    }
+
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: 1px;
+        background: root.tone == 0 ? transparent : root.accent-color.with-alpha(root.active ? 0.42 : 0.18);
+    }
+
+    HorizontalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        spacing: 12px;
+
+        Rectangle {
+            width: 8px;
+            height: root.show-progress ? 52px : 40px;
+            y: 4px;
+            border-radius: 4px;
+            background: root.accent-color;
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: root.show-progress ? 4px : 2px;
+
+            Text {
+                horizontal-stretch: 1;
+                text: root.title;
+                color: ThemeTokens.text;
+                font-family: "Figtree";
+                font-size: 13px;
+                font-weight: 500;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            Text {
+                horizontal-stretch: 1;
+                text: root.category + " • " + root.detail;
+                color: ThemeTokens.muted;
+                font-family: "Figtree";
+                font-size: 12px;
+                font-weight: 400;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            if root.show-progress : HorizontalLayout {
+                height: 18px;
+                spacing: 10px;
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 6px;
+                    y: 6px;
+                    border-radius: 4px;
+                    background: root.accent-soft;
+                    clip: true;
+
+                    Rectangle {
+                        width: max(0px, parent.width * min(1.0, max(0.0, root.progress-value)));
+                        height: parent.height;
+                        border-radius: 4px;
+                        background: root.accent-color;
+                        opacity: root.package-pending ? 0.72 : 1;
+                        animate width { duration: 240ms; }
+                    }
+
+                    if root.package-pending : Rectangle {
+                        width: 42px;
+                        height: parent.height;
+                        x: root.animation-pulse ? parent.width - self.width : 0px;
+                        border-radius: 4px;
+                        background: ThemeTokens.surface.with-alpha(0.82);
+                        opacity: 0.82;
+                        animate x { duration: 650ms; easing: ease-in-out; }
+                    }
+                }
+
+                Text {
+                    min-width: root.package-pending ? 164px : 118px;
+                    text: root.package-pending ? (root.progress-text == "" ? "Zip in progress" : root.progress-text + " - zip in progress") : root.progress-text == "" ? "In progress" : root.progress-text;
+                    color: root.active ? ThemeTokens.text : ThemeTokens.muted;
+                    font-family: "Figtree";
+                    font-size: 11px;
+                    font-weight: 500;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
+
+        Rectangle {
+            width: 108px;
+            height: 28px;
+            y: root.show-progress ? 4px : 10px;
+            border-radius: 14px;
+            border-width: 1px;
+            border-color: root.tone == 0 ? ThemeTokens.stroke : root.package-pending && root.animation-pulse ? root.accent-color.with-alpha(0.86) : root.accent-color.with-alpha(0.45);
+            background: root.tone == 0 ? ThemeTokens.panel : root.package-pending && root.animation-pulse ? root.accent-color.with-alpha(0.20) : root.accent-soft;
+            animate background { duration: 650ms; easing: ease-in-out; }
+            animate border-color { duration: 650ms; easing: ease-in-out; }
+
+            Text {
+                text: root.status;
+                color: root.tone == 0 ? ThemeTokens.muted : root.accent-color;
+                font-family: "Figtree";
+                font-size: 11px;
+                font-weight: 500;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+}

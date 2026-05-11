@@ -1,0 +1,882 @@
+import { ThemeTokens } from "../theme.slint";
+import { CardPanel, CodexBand, CollectionActivityRow, GhostButton, HelperText, InfoLine, PrimaryButton, ReadOnlyField, SectionLabel, SelectField } from "../components.slint";
+import { CollectionActivityDetailItem, CollectionActivityItem, DriveItem } from "../models.slint";
+import { ScrollView } from "std-widgets.slint";
+
+component DriveButton inherits Rectangle {
+    in property <string> volume;
+    in property <string> filesystem;
+    in property <bool> selected: false;
+    callback clicked();
+
+    width: 54px;
+    height: 44px;
+    border-radius: ThemeTokens.radius-medium;
+    border-width: 1px;
+    border-color: root.selected ? ThemeTokens.primary : ThemeTokens.stroke;
+    background: root.selected ? ThemeTokens.primary.with-alpha(0.16) : touch.has-hover ? ThemeTokens.card : ThemeTokens.panel;
+    animate background { duration: 100ms; }
+    animate border-color { duration: 100ms; }
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-top: 5px;
+        padding-bottom: 5px;
+        padding-left: 4px;
+        padding-right: 4px;
+        spacing: 3px;
+
+        Text {
+            horizontal-stretch: 1;
+            text: root.volume;
+            color: root.selected ? ThemeTokens.text : ThemeTokens.muted;
+            font-family: "Figtree";
+            font-size: 12px;
+            font-weight: 500;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        Rectangle {
+            horizontal-stretch: 1;
+            height: 14px;
+            border-radius: 7px;
+            border-width: 1px;
+            border-color: root.selected ? ThemeTokens.primary.with-alpha(0.42) : ThemeTokens.stroke;
+            background: root.selected ? ThemeTokens.primary.with-alpha(0.12) : ThemeTokens.surface;
+
+            Text {
+                width: parent.width;
+                height: parent.height;
+                text: root.filesystem == "" ? "UNK" : root.filesystem;
+                color: root.selected ? ThemeTokens.text : ThemeTokens.placeholder;
+                font-family: "Figtree";
+                font-size: 8px;
+                font-weight: 500;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => { root.clicked(); }
+    }
+}
+
+component SourceSetupPanel inherits Rectangle {
+    in property <[DriveItem]> drives;
+    in property <string> helper-text;
+    callback select-drive-requested(int);
+
+    clip: true;
+    border-radius: ThemeTokens.radius-medium;
+    border-width: 1px;
+    border-color: ThemeTokens.stroke;
+    background: ThemeTokens.panel;
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding: 8px;
+        spacing: 4px;
+
+        SectionLabel { text: "SOURCE"; }
+
+        drive-scroll := ScrollView {
+            height: 52px;
+
+            Rectangle {
+                width: max(drive-scroll.visible-width, max(64px, root.drives.length * 62px));
+                height: drive-scroll.visible-height;
+                background: transparent;
+
+                HorizontalLayout {
+                    width: parent.width;
+                    height: parent.height;
+                    spacing: 8px;
+
+                    for drive[index] in root.drives : DriveButton {
+                        volume: drive.volume;
+                        filesystem: drive.filesystem;
+                        selected: drive.selected;
+                        clicked => { root.select-drive-requested(index); }
+                    }
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        visible: root.drives.length < 5;
+                    }
+                }
+            }
+        }
+
+        HelperText {
+            horizontal-stretch: 1;
+            height: 18px;
+            text: root.helper-text == "" ? "Windows volumes to collect from." : root.helper-text;
+        }
+    }
+}
+
+component ScopeSetupPanel inherits Rectangle {
+    in-out property <int> collection-profile: 0;
+    in property <bool> stacked-layout: false;
+
+    callback review-scope-requested();
+    callback persist-settings-requested();
+
+    clip: true;
+    border-radius: ThemeTokens.radius-medium;
+    border-width: 1px;
+    border-color: ThemeTokens.stroke;
+    background: ThemeTokens.panel;
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding: 8px;
+        spacing: 4px;
+
+        SectionLabel { text: "SCOPE"; }
+
+        HorizontalLayout {
+            visible: !root.stacked-layout;
+            height: root.stacked-layout ? 0px : 38px;
+            spacing: 10px;
+
+            SelectField {
+                horizontal-stretch: 1;
+                placeholder: "Collection profile";
+                items: ["Full collection", "Triage collection", "Custom collection"];
+                selected-index <=> root.collection-profile;
+                activated(index) => { root.persist-settings-requested(); }
+            }
+
+            GhostButton {
+                width: 116px;
+                label: "Review Scope";
+                clicked => { root.review-scope-requested(); }
+            }
+        }
+
+        VerticalLayout {
+            visible: root.stacked-layout;
+            height: root.stacked-layout ? 84px : 0px;
+            spacing: 8px;
+
+            SelectField {
+                horizontal-stretch: 1;
+                placeholder: "Collection profile";
+                items: ["Full collection", "Triage collection", "Custom collection"];
+                selected-index <=> root.collection-profile;
+                activated(index) => { root.persist-settings-requested(); }
+            }
+
+            GhostButton {
+                horizontal-stretch: 1;
+                label: "Review Scope";
+                clicked => { root.review-scope-requested(); }
+            }
+        }
+
+        HelperText {
+            horizontal-stretch: 1;
+            height: root.stacked-layout ? 30px : 18px;
+            text: root.collection-profile == 0 ? "All evidence groups selected." : root.collection-profile == 1 ? "High-signal evidence set selected." : "Choose the evidence groups to package.";
+        }
+    }
+}
+
+component DestinationSetupPanel inherits Rectangle {
+    in property <string> archive-path;
+    in property <string> output-filename;
+    in property <bool> source-supported: true;
+    in property <bool> collection-running: false;
+
+    callback browse-collection-directory-requested();
+    callback run-collection-requested();
+
+    clip: true;
+    border-radius: ThemeTokens.radius-medium;
+    border-width: 1px;
+    border-color: ThemeTokens.stroke;
+    background: ThemeTokens.panel;
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding: 8px;
+        spacing: 4px;
+
+        HorizontalLayout {
+            height: 16px;
+            spacing: 10px;
+
+            SectionLabel { text: "DESTINATION"; }
+
+            InfoLine {
+                horizontal-stretch: 1;
+                text: "Package folder and default archive name.";
+                vertical-alignment: center;
+            }
+        }
+
+        HorizontalLayout {
+            height: 38px;
+            spacing: 10px;
+
+            ReadOnlyField {
+                horizontal-stretch: 1;
+                value: root.archive-path;
+                placeholder: "Evidence package folder";
+            }
+
+            GhostButton {
+                width: 84px;
+                label: "Browse";
+                clicked => { root.browse-collection-directory-requested(); }
+            }
+        }
+
+        HorizontalLayout {
+            height: 38px;
+            spacing: 10px;
+
+            ReadOnlyField {
+                horizontal-stretch: 1;
+                value: root.output-filename;
+                placeholder: "Archive filename";
+            }
+
+            PrimaryButton {
+                width: 136px;
+                enabled: !root.collection-running && root.source-supported;
+                fill: ThemeTokens.risk;
+                hover-fill: ThemeTokens.risk-hover;
+                stroke: ThemeTokens.risk.with-alpha(0.74);
+                label: root.collection-running ? "Creating..." : "Create Package";
+                clicked => { root.run-collection-requested(); }
+            }
+        }
+    }
+}
+
+component CollectionActivityDetailPanel inherits Rectangle {
+    in property <string> title;
+    in property <string> status;
+    in property <string> summary;
+    in property <[CollectionActivityDetailItem]> items;
+
+    clip: true;
+    border-radius: ThemeTokens.radius-medium;
+    border-width: 1px;
+    border-color: ThemeTokens.stroke;
+    background: ThemeTokens.panel;
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding: 10px;
+        spacing: 7px;
+
+        HorizontalLayout {
+            height: 18px;
+            spacing: 8px;
+
+            Text {
+                horizontal-stretch: 1;
+                text: root.title == "" ? "Collection details" : root.title;
+                color: ThemeTokens.text;
+                font-family: "Figtree";
+                font-size: 13px;
+                font-weight: 500;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            Text {
+                width: 78px;
+                text: root.status;
+                color: ThemeTokens.muted;
+                font-family: "Figtree";
+                font-size: 11px;
+                font-weight: 500;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+
+        HelperText {
+            horizontal-stretch: 1;
+            height: 30px;
+            text: root.summary == "" ? "Select a runtime collector to inspect expected or staged artifacts." : root.summary;
+        }
+
+        ScrollView {
+            vertical-stretch: 1;
+
+            VerticalLayout {
+                width: max(0px, parent.width - 10px);
+                alignment: start;
+                spacing: 5px;
+
+                if root.items.length == 0 : InfoLine {
+                    horizontal-stretch: 1;
+                    height: 18px;
+                    text: "No artifact details yet.";
+                }
+
+                for item in root.items : Rectangle {
+                    horizontal-stretch: 1;
+                    height: 48px;
+                    border-radius: ThemeTokens.radius-small;
+                    border-width: 1px;
+                    border-color: ThemeTokens.stroke;
+                    background: ThemeTokens.card;
+
+                    HorizontalLayout {
+                        width: parent.width;
+                        height: parent.height;
+                        padding-left: 9px;
+                        padding-right: 9px;
+                        padding-top: 7px;
+                        padding-bottom: 7px;
+                        spacing: 8px;
+
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 4px;
+
+                            Text {
+                                horizontal-stretch: 1;
+                                text: item.name;
+                                color: ThemeTokens.text;
+                                font-family: "Figtree";
+                                font-size: 12px;
+                                font-weight: 500;
+                                overflow: elide;
+                            }
+
+                            Text {
+                                horizontal-stretch: 1;
+                                text: item.detail;
+                                color: ThemeTokens.muted;
+                                font-family: "Figtree";
+                                font-size: 10px;
+                                font-weight: 400;
+                                wrap: word-wrap;
+                                overflow: elide;
+                            }
+                        }
+
+                        Text {
+                            width: 72px;
+                            text: item.state;
+                            color: ThemeTokens.primary-hover;
+                            font-family: "Figtree";
+                            font-size: 10px;
+                            font-weight: 500;
+                            horizontal-alignment: right;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component CollectionPage inherits Rectangle {
+    in-out property <int> collection-profile: 0;
+    in property <string> collection-archive-path;
+    in property <string> collection-output-filename;
+    in property <[DriveItem]> collection-drives;
+    in property <bool> collection-source-supported: true;
+    in property <string> collection-source-summary;
+    in property <bool> collection-running: false;
+    in property <string> collection-status;
+    in property <string> collection-activity-summary;
+    in property <bool> collection-activity-pulse: false;
+    in property <string> collection-log;
+    in property <[CollectionActivityItem]> collection-activity-items;
+    in property <string> collection-activity-detail-title;
+    in property <string> collection-activity-detail-status;
+    in property <string> collection-activity-detail-summary;
+    in property <[CollectionActivityDetailItem]> collection-activity-detail-items;
+
+    callback open-settings-requested();
+    callback open-about-requested();
+    callback persist-settings-requested();
+    callback review-scope-requested();
+    callback browse-collection-directory-requested();
+    callback select-drive-requested(int);
+    callback run-collection-requested();
+    callback select-collection-activity-requested(int);
+
+    private property <bool> compact-layout: self.width < 620px;
+    private property <bool> short-layout: self.height < 760px;
+    private property <bool> console-manually-expanded: false;
+    private property <bool> console-manually-collapsed: false;
+    private property <bool> console-expanded: root.console-manually-expanded || (!root.short-layout && !root.console-manually-collapsed);
+    private property <length> page-padding: root.compact-layout ? 12px : 14px;
+    private property <length> page-spacing: root.compact-layout ? 6px : 8px;
+    private property <length> header-card-height: root.compact-layout ? 102px : 84px;
+    private property <length> setup-card-height: root.compact-layout ? (root.short-layout ? 244px : 320px) : 274px;
+    private property <length> tail-height: max(0px, root.height - (root.page-padding * 2) - (root.page-spacing * 3) - root.header-card-height - root.setup-card-height);
+    private property <length> status-max-height: root.compact-layout ? 360px : 318px;
+    private property <length> status-min-height: root.compact-layout ? 120px : 90px;
+    private property <length> console-collapsed-height: 54px;
+    private property <length> console-min-expanded-height: 126px;
+    private property <length> console-card-height: root.console-expanded ? max(root.console-min-expanded-height, root.tail-height - root.status-max-height) : root.console-collapsed-height;
+    private property <length> status-card-height: max(root.status-min-height, root.tail-height - root.console-card-height);
+
+    background: ThemeTokens.base;
+
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        background: ThemeTokens.base;
+    }
+
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 4px;
+        height: parent.height;
+        background: ThemeTokens.primary.with-alpha(0.20);
+    }
+
+    Rectangle {
+        x: 4px;
+        y: 38px;
+        width: 3px;
+        height: max(80px, parent.height * 0.28);
+        background: ThemeTokens.risk.with-alpha(0.22);
+    }
+
+    Rectangle {
+        x: parent.width - 6px;
+        y: max(80px, parent.height * 0.16);
+        width: 3px;
+        height: max(80px, parent.height * 0.24);
+        background: ThemeTokens.copal.with-alpha(0.18);
+    }
+
+    Rectangle {
+        x: parent.width - 4px;
+        y: 0px;
+        width: 4px;
+        height: parent.height;
+        background: ThemeTokens.carmine.with-alpha(0.10);
+    }
+
+    page-content := VerticalLayout {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        padding: root.page-padding;
+        spacing: root.page-spacing;
+
+                CardPanel {
+                    horizontal-stretch: 1;
+                    height: root.header-card-height;
+                    background: ThemeTokens.hero;
+                    clip: true;
+
+                CodexBand {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: 6px;
+                    compact: root.compact-layout;
+                }
+
+                Rectangle {
+                    x: parent.width - (root.compact-layout ? 146px : 166px);
+                    y: parent.height - 8px;
+                    width: root.compact-layout ? 54px : 64px;
+                    height: 2px;
+                    background: ThemeTokens.carmine.with-alpha(0.72);
+                }
+
+                Rectangle {
+                    x: parent.width - (root.compact-layout ? 88px : 98px);
+                    y: parent.height - 12px;
+                    width: root.compact-layout ? 36px : 42px;
+                    height: 2px;
+                    background: ThemeTokens.copal.with-alpha(0.74);
+                }
+
+                Rectangle {
+                    x: 16px;
+                    y: root.compact-layout ? 20px : 14px;
+                    width: root.compact-layout ? 48px : 44px;
+                    height: root.compact-layout ? 48px : 44px;
+                    border-radius: ThemeTokens.radius-large;
+                    background: ThemeTokens.surface;
+                    border-width: 1px;
+                    border-color: ThemeTokens.stroke;
+
+                    Image {
+                        x: root.compact-layout ? 5px : 4px;
+                        y: root.compact-layout ? 5px : 4px;
+                        width: root.compact-layout ? 38px : 36px;
+                        height: root.compact-layout ? 38px : 36px;
+                        source: ThemeTokens.dark ? @image-url("../../assets/holoForensicsLogoDark.svg") : @image-url("../../assets/holoForensicsLogo.svg");
+                    }
+                }
+
+                SectionLabel {
+                    x: root.compact-layout ? 76px : 72px;
+                    y: root.compact-layout ? 18px : 12px;
+                    width: max(120px, parent.width - (root.compact-layout ? 290px : 304px));
+                    height: 14px;
+                    text: "WINDOWS FORENSIC COLLECTION";
+                    color: ThemeTokens.muted;
+                }
+
+                Text {
+                    x: root.compact-layout ? 76px : 72px;
+                    y: root.compact-layout ? 30px : 22px;
+                    width: max(140px, parent.width - (root.compact-layout ? 290px : 304px));
+                    height: 28px;
+                    text: "Holo Forensics Collector";
+                    color: ThemeTokens.hero-foreground;
+                    font-family: "Tomorrow";
+                    font-size: root.compact-layout ? 24px : 23px;
+                    font-weight: 100;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                Text {
+                    x: root.compact-layout ? 76px : 72px;
+                    y: root.compact-layout ? 58px : 48px;
+                    width: max(140px, parent.width - (root.compact-layout ? 290px : 304px));
+                    height: 16px;
+                    text: "Choose source, scope, and destination.";
+                    color: ThemeTokens.muted;
+                    font-family: "Figtree";
+                    font-size: 12px;
+                    font-weight: 400;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                HorizontalLayout {
+                    x: parent.width - (root.compact-layout ? 204px : 222px);
+                    y: root.compact-layout ? 31px : 23px;
+                    width: root.compact-layout ? 188px : 206px;
+                    height: 38px;
+                    spacing: 8px;
+
+                    GhostButton {
+                        width: root.compact-layout ? 82px : 88px;
+                        foreground: ThemeTokens.hero-foreground;
+                        fill: ThemeTokens.panel;
+                        hover-fill: ThemeTokens.accent-soft;
+                        stroke: ThemeTokens.stroke;
+                        label: "About";
+                        clicked => { root.open-about-requested(); }
+                    }
+
+                    GhostButton {
+                        width: root.compact-layout ? 98px : 110px;
+                        foreground: ThemeTokens.hero-foreground;
+                        fill: ThemeTokens.panel;
+                        hover-fill: ThemeTokens.accent-soft;
+                        stroke: ThemeTokens.stroke;
+                        label: "Settings";
+                        clicked => { root.open-settings-requested(); }
+                    }
+                }
+            }
+
+                CardPanel {
+                    horizontal-stretch: 1;
+                    height: root.setup-card-height;
+
+                VerticalLayout {
+                    width: parent.width;
+                    height: parent.height;
+                    padding: 12px;
+                    spacing: 6px;
+
+                    SectionLabel { text: "COLLECTION SETUP"; }
+
+                    HorizontalLayout {
+                        visible: !root.compact-layout;
+                        horizontal-stretch: 1;
+                        height: root.compact-layout ? 0px : 104px;
+                        spacing: 12px;
+
+                        SourceSetupPanel {
+                            horizontal-stretch: 1;
+                            drives: root.collection-drives;
+                            helper-text: root.collection-source-summary;
+                            select-drive-requested(index) => { root.select-drive-requested(index); }
+                        }
+
+                        ScopeSetupPanel {
+                            horizontal-stretch: 1;
+                            collection-profile <=> root.collection-profile;
+                            stacked-layout: false;
+                            review-scope-requested => { root.review-scope-requested(); }
+                            persist-settings-requested => { root.persist-settings-requested(); }
+                        }
+                    }
+
+                    VerticalLayout {
+                        visible: root.compact-layout;
+                        horizontal-stretch: 1;
+                        height: root.compact-layout ? 258px : 0px;
+                        spacing: 6px;
+
+                        SourceSetupPanel {
+                            horizontal-stretch: 1;
+                            height: 112px;
+                            drives: root.collection-drives;
+                            helper-text: root.collection-source-summary;
+                            select-drive-requested(index) => { root.select-drive-requested(index); }
+                        }
+
+                        ScopeSetupPanel {
+                            horizontal-stretch: 1;
+                            height: 140px;
+                            collection-profile <=> root.collection-profile;
+                            stacked-layout: true;
+                            review-scope-requested => { root.review-scope-requested(); }
+                            persist-settings-requested => { root.persist-settings-requested(); }
+                        }
+                    }
+
+                    DestinationSetupPanel {
+                        horizontal-stretch: 1;
+                        height: 120px;
+                        archive-path: root.collection-archive-path;
+                        output-filename: root.collection-output-filename;
+                        source-supported: root.collection-source-supported;
+                        collection-running: root.collection-running;
+                        browse-collection-directory-requested => { root.browse-collection-directory-requested(); }
+                        run-collection-requested => { root.run-collection-requested(); }
+                    }
+                }
+            }
+
+                CardPanel {
+                    horizontal-stretch: 1;
+                    height: root.status-card-height;
+
+                VerticalLayout {
+                    width: parent.width;
+                    height: parent.height;
+                    padding: 12px;
+                    spacing: 8px;
+
+                    HorizontalLayout {
+                        spacing: 12px;
+
+                        SectionLabel { text: "COLLECTION STATUS"; }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        Text {
+                            text: root.collection-status;
+                            color: ThemeTokens.muted;
+                            font-family: "Figtree";
+                            font-size: 12px;
+                            font-weight: 400;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    HelperText {
+                        horizontal-stretch: 1;
+                        height: 28px;
+                        text: root.collection-activity-summary;
+                    }
+
+                    if !root.compact-layout : HorizontalLayout {
+                        horizontal-stretch: 1;
+                        vertical-stretch: 1;
+                        spacing: 10px;
+
+                        ScrollView {
+                            horizontal-stretch: 1;
+
+                            VerticalLayout {
+                                width: max(0px, parent.width - 10px);
+                                alignment: start;
+                                spacing: 6px;
+
+                                for item[index] in root.collection-activity-items : CollectionActivityRow {
+                                    horizontal-stretch: 1;
+                                    title: item.title;
+                                    category: item.category;
+                                    detail: item.detail;
+                                    status: item.status;
+                                    tone: item.tone;
+                                    active: item.active;
+                                    show-progress: item.show_progress;
+                                    progress-value: item.progress_value;
+                                    progress-text: item.progress_text;
+                                    package-pending: item.package_pending;
+                                    animation-pulse: root.collection-activity-pulse;
+                                    clicked => { root.select-collection-activity-requested(index); }
+                                }
+                            }
+                        }
+
+                        CollectionActivityDetailPanel {
+                            width: 360px;
+                            title: root.collection-activity-detail-title;
+                            status: root.collection-activity-detail-status;
+                            summary: root.collection-activity-detail-summary;
+                            items: root.collection-activity-detail-items;
+                        }
+                    }
+
+                    if root.compact-layout : VerticalLayout {
+                        horizontal-stretch: 1;
+                        height: 410px;
+                        spacing: 8px;
+
+                        ScrollView {
+                            height: 176px;
+
+                            VerticalLayout {
+                                width: max(0px, parent.width - 10px);
+                                alignment: start;
+                                spacing: 6px;
+
+                                for item[index] in root.collection-activity-items : CollectionActivityRow {
+                                    horizontal-stretch: 1;
+                                    title: item.title;
+                                    category: item.category;
+                                    detail: item.detail;
+                                    status: item.status;
+                                    tone: item.tone;
+                                    active: item.active;
+                                    show-progress: item.show_progress;
+                                    progress-value: item.progress_value;
+                                    progress-text: item.progress_text;
+                                    package-pending: item.package_pending;
+                                    animation-pulse: root.collection-activity-pulse;
+                                    clicked => { root.select-collection-activity-requested(index); }
+                                }
+                            }
+                        }
+
+                        CollectionActivityDetailPanel {
+                            horizontal-stretch: 1;
+                            height: 226px;
+                            title: root.collection-activity-detail-title;
+                            status: root.collection-activity-detail-status;
+                            summary: root.collection-activity-detail-summary;
+                            items: root.collection-activity-detail-items;
+                        }
+                    }
+                }
+            }
+
+                CardPanel {
+                    horizontal-stretch: 1;
+                    height: root.console-card-height;
+
+                    VerticalLayout {
+                        width: parent.width;
+                        height: parent.height;
+                        padding: 12px;
+                        spacing: root.console-expanded ? 8px : 0px;
+
+                        HorizontalLayout {
+                            height: 24px;
+                            spacing: 12px;
+
+                            Text {
+                                text: "Console";
+                                color: ThemeTokens.text;
+                                font-family: "Tomorrow";
+                                font-size: 18px;
+                                font-weight: 300;
+                                vertical-alignment: center;
+                            }
+
+                            Rectangle { horizontal-stretch: 1; }
+
+                            GhostButton {
+                                width: 86px;
+                                height: 24px;
+                                label: root.console-expanded ? "Collapse" : "Expand";
+                                clicked => {
+                                    if root.console-expanded {
+                                        root.console-manually-collapsed = true;
+                                        root.console-manually-expanded = false;
+                                    } else {
+                                        root.console-manually-expanded = true;
+                                        root.console-manually-collapsed = false;
+                                    }
+                                }
+                            }
+                        }
+
+                        InfoLine {
+                            horizontal-stretch: 1;
+                            text: "Live console tail from ~/.holo-forensics/holo-forensics.log.";
+                            height: 16px;
+                            vertical-alignment: center;
+                            visible: root.console-expanded;
+                        }
+
+                        Rectangle {
+                            vertical-stretch: 1;
+                            border-radius: ThemeTokens.radius-medium;
+                            border-width: 1px;
+                            border-color: ThemeTokens.stroke;
+                            background: ThemeTokens.console-surface;
+                            clip: true;
+                            visible: root.console-expanded;
+
+                            console-scroll := ScrollView {
+                                x: 0px;
+                                y: 0px;
+                                width: parent.width;
+                                height: parent.height;
+                                viewport-width: self.visible-width;
+                                viewport-height: max(self.visible-height, console-text.preferred-height + 20px);
+
+                                Rectangle {
+                                    width: console-scroll.visible-width;
+                                    height: console-scroll.viewport-height;
+                                    background: transparent;
+
+                                    console-text := Text {
+                                        x: 12px;
+                                        y: 10px;
+                                        width: max(0px, console-scroll.visible-width - 24px);
+                                        text: root.collection-log == "" ? "No console output yet." : root.collection-log;
+                                        color: #E2E7EF;
+                                        font-family: "Tomorrow";
+                                        font-size: 11px;
+                                        font-weight: 400;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+    }
+}

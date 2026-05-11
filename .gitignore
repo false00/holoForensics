@@ -1,0 +1,37 @@
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+bin/
+
+# Runtime cache and parser output
+.cache/
+target/
+output/
+*.log
+
+# Intake collections and scratch data
+*.zip
+tmp/
+temp/
+
+# Local environment and secrets
+.env
+.env.*
+*.local
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+.creds_*
+*-keeper.json
+
+samples/

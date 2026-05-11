@@ -1,0 +1,122 @@
+import { ThemeTokens } from "../theme.slint";
+import { CardPanel, CodexBand, GhostButton, HelperText, SectionLabel } from "../components.slint";
+
+export component AboutDialog inherits Rectangle {
+    callback close-requested();
+
+    background: ThemeTokens.overlay;
+
+    CardPanel {
+        width: min(420px, parent.width - 48px);
+        height: 306px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: ThemeTokens.card;
+
+        CodexBand {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: 6px;
+            compact: true;
+        }
+
+        VerticalLayout {
+            width: parent.width;
+            height: parent.height;
+            padding: 18px;
+            spacing: 12px;
+
+            SectionLabel { text: "ABOUT"; }
+
+            Text {
+                horizontal-stretch: 1;
+                height: 34px;
+                text: "Holo Forensics";
+                color: ThemeTokens.text;
+                font-family: "Tomorrow";
+                font-size: 26px;
+                font-weight: 300;
+                vertical-alignment: center;
+            }
+
+            HelperText {
+                horizontal-stretch: 1;
+                height: 24px;
+                text: "Windows forensic collection and analysis workflow.";
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 78px;
+                border-radius: ThemeTokens.radius-medium;
+                border-width: 1px;
+                border-color: ThemeTokens.stroke;
+                background: ThemeTokens.panel;
+
+                VerticalLayout {
+                    width: parent.width;
+                    height: parent.height;
+                    padding: 12px;
+                    spacing: 8px;
+
+                    HorizontalLayout {
+                        height: 18px;
+                        spacing: 12px;
+
+                        HelperText {
+                            width: 86px;
+                            text: "Version";
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            horizontal-stretch: 1;
+                            text: "0.1.0";
+                            color: ThemeTokens.text;
+                            font-family: "Figtree";
+                            font-size: 13px;
+                            font-weight: 500;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        height: 34px;
+                        spacing: 12px;
+
+                        HelperText {
+                            width: 86px;
+                            text: "Developer";
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            horizontal-stretch: 1;
+                            text: "false00";
+                            color: ThemeTokens.text;
+                            font-family: "Figtree";
+                            font-size: 13px;
+                            font-weight: 500;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            HelperText {
+                horizontal-stretch: 1;
+                height: 38px;
+                text: "Built with ❤️ by false00, Curl RED Dev Team.";
+                vertical-alignment: center;
+                horizontal-alignment: center;
+            }
+
+            GhostButton {
+                horizontal-stretch: 1;
+                label: "Close";
+                clicked => { root.close-requested(); }
+            }
+        }
+    }
+}

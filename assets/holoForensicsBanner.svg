@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-label="Holo Forensics banner">
+  <defs>
+    <style>
+      @font-face {
+        font-family: "Tomorrow";
+        src: url("fonts/Tomorrow-Light.ttf") format("truetype");
+        font-weight: 300;
+      }
+      @font-face {
+        font-family: "Figtree";
+        src: url("fonts/Figtree-Medium.ttf") format("truetype");
+        font-weight: 500;
+      }
+    </style>
+    <radialGradient id="background" cx="44%" cy="34%" r="86%">
+      <stop offset="0" stop-color="#1E2423"/>
+      <stop offset=".42" stop-color="#141817"/>
+      <stop offset=".74" stop-color="#0D0E0E"/>
+      <stop offset="1" stop-color="#050606"/>
+    </radialGradient>
+    <linearGradient id="modern-vignette" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#163135" stop-opacity=".24"/>
+      <stop offset=".45" stop-color="#0B0B0B" stop-opacity="0"/>
+      <stop offset="1" stop-color="#1D3F8B" stop-opacity=".16"/>
+    </linearGradient>
+    <linearGradient id="stone" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#EEE9DF"/>
+      <stop offset=".55" stop-color="#CFC5B5"/>
+      <stop offset="1" stop-color="#8E887E"/>
+    </linearGradient>
+    <filter id="soft-shadow" x="-22%" y="-22%" width="144%" height="144%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#000000" flood-opacity=".45"/>
+    </filter>
+    <filter id="logo-glow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="subtle-grain" x="-8%" y="-8%" width="116%" height="116%">
+      <feTurbulence type="fractalNoise" baseFrequency=".95" numOctaves="2" seed="7" result="noise"/>
+      <feColorMatrix in="noise" type="matrix" values=".08 0 0 0 0 0 .075 0 0 0 0 0 .065 0 0 0 0 0 .12 0" result="grain"/>
+      <feBlend in="SourceGraphic" in2="grain" mode="multiply"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="320" fill="url(#background)"/>
+  <rect width="1200" height="320" fill="url(#modern-vignette)"/>
+  <rect x="0" y="0" width="1200" height="320" fill="#0B0B0B" opacity=".08"/>
+
+  <g transform="translate(760 78)" opacity=".28" fill="none" stroke-linecap="square" stroke-linejoin="miter">
+    <path d="M0 166h372" stroke="#4B4E53" stroke-width="3"/>
+    <path d="M36 166v-28h300v28" stroke="#8E887E" stroke-width="3"/>
+    <path d="M70 138v-28h232v28" stroke="#8E887E" stroke-width="3"/>
+    <path d="M104 110V82h164v28" stroke="#8E887E" stroke-width="3"/>
+    <path d="M138 82V54h96v28" stroke="#8E887E" stroke-width="3"/>
+    <path d="M156 54V26h60v28" stroke="#8E887E" stroke-width="3"/>
+    <path d="M176 166V54M196 166V54" stroke="#4B4E53" stroke-width="2"/>
+    <path d="M176 138h20M176 110h20M176 82h20" stroke="#4B4E53" stroke-width="2"/>
+    <path d="M70 138h232M104 110h164M138 82h96" stroke="#2F9E9E" stroke-width="2.5" opacity=".74"/>
+    <path d="M158 54h56" stroke="#FFB300" stroke-width="2.5" opacity=".76"/>
+    <g transform="translate(186 -9)" opacity=".9">
+      <path d="M-34 0L-18 -14H18L34 0L18 14H-18Z" fill="none" stroke="#FFB300" stroke-width="3"/>
+      <path d="M-18 0H18" stroke="#C8812A" stroke-width="2" opacity=".72"/>
+      <path d="M0 -13V13" stroke="#C8812A" stroke-width="2" opacity=".55"/>
+      <path d="M-8 0a8 8 0 1 0 16 0a8 8 0 1 0 -16 0" fill="#FFB300" opacity=".86"/>
+      <path d="M-42 0h-16M42 0h16" stroke="#FFB300" stroke-width="2" opacity=".68"/>
+      <path d="M-22 18h44" stroke="#2F9E9E" stroke-width="2" opacity=".44"/>
+    </g>
+  </g>
+
+  <g transform="translate(154 62) scale(.74)" filter="url(#soft-shadow)">
+    <path d="M55 34h45v68h56V34h45v188h-45v-71h-56v71H55Z" fill="#ffffff" filter="url(#logo-glow)"/>
+    <path d="M55 34h45l-16 17H55ZM156 34h45v17h-29ZM55 205h45v17H55ZM156 205h45l-16 17h-29ZM100 102h56l-14 15h-42ZM100 136h56v15h-56Z" fill="#dfe9ff" opacity=".72"/>
+    <path d="M41 74h39M176 74h39M39 174h44M174 174h33" stroke="#1d3f8b" stroke-width="8" stroke-linecap="square" opacity=".92"/>
+    <path d="M67 95h31M158 95h42M55 193h34M153 193h62" stroke="#32e6c8" stroke-width="7" stroke-linecap="square" opacity=".86"/>
+  </g>
+
+  <g transform="translate(330 82)">
+    <text x="0" y="86" fill="#EEE9DF" font-family="Tomorrow, Figtree, Segoe UI, Arial, sans-serif" font-size="88" font-weight="300" letter-spacing="8">OLO</text>
+    <text x="3" y="153" fill="#EEE9DF" font-family="Tomorrow, Figtree, Segoe UI, Arial, sans-serif" font-size="52" font-weight="300" letter-spacing="7">FORENSICS</text>
+    <text x="6" y="198" fill="#B8B1A6" font-family="Figtree, Segoe UI, Arial, sans-serif" font-size="15" font-weight="500" letter-spacing="3">FORENSIC COLLECTION AND ANALYSIS</text>
+  </g>
+</svg>

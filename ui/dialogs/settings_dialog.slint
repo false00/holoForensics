@@ -1,0 +1,115 @@
+import { ThemeTokens } from "../theme.slint";
+import { CardPanel, GhostButton, HelperText, PrimaryButton, SectionLabel, SelectField, ToggleChip } from "../components.slint";
+
+export component SettingsDialog inherits Rectangle {
+    in-out property <bool> collection-elevate: true;
+
+    callback close-requested();
+    callback persist-settings-requested();
+
+    background: ThemeTokens.overlay;
+
+    CardPanel {
+        width: min(468px, parent.width - 48px);
+        height: 352px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: ThemeTokens.card;
+
+        VerticalLayout {
+            width: parent.width;
+            height: parent.height;
+            padding: 18px;
+            spacing: 12px;
+
+            SectionLabel { text: "SETTINGS"; }
+
+            Text {
+                text: "App Settings";
+                color: ThemeTokens.text;
+                font-family: "Tomorrow";
+                font-size: 26px;
+                font-weight: 300;
+            }
+
+            HelperText {
+                horizontal-stretch: 1;
+                height: 32px;
+                text: "Appearance and desktop settings are saved in ~/.holo-forensics/app-settings.json. Request admin starts enabled each launch.";
+            }
+
+            SectionLabel { text: "APPEARANCE"; }
+
+            SelectField {
+                horizontal-stretch: 1;
+                placeholder: "Theme";
+                items: ["Auto", "Dark", "Light"];
+                selected-index <=> ThemeTokens.theme-mode;
+                activated(index) => { root.persist-settings-requested(); }
+            }
+
+            SectionLabel { text: "COLLECTION"; }
+
+            HorizontalLayout {
+                height: 52px;
+                spacing: 12px;
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 2px;
+
+                    Text {
+                        text: "Request admin";
+                        height: 18px;
+                        color: ThemeTokens.text;
+                        font-family: "Figtree";
+                        font-size: 14px;
+                        font-weight: 500;
+                        vertical-alignment: center;
+                    }
+
+                    HelperText {
+                        horizontal-stretch: 1;
+                        height: 28px;
+                        text: "Prompt for UAC before starting collection. Starts enabled every launch and can be disabled for the current run.";
+                    }
+                }
+
+                Rectangle {
+                    width: 108px;
+                    height: 52px;
+                    background: transparent;
+
+                    ToggleChip {
+                        x: 0px;
+                        y: 11px;
+                        width: parent.width;
+                        label: root.collection-elevate ? "Enabled" : "Disabled";
+                        checked <=> root.collection-elevate;
+                        toggled(value) => { root.persist-settings-requested(); }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 10px;
+
+                GhostButton {
+                    horizontal-stretch: 1;
+                    background: ThemeTokens.panel;
+                    label: "Close";
+                    clicked => { root.close-requested(); }
+                }
+
+                PrimaryButton {
+                    horizontal-stretch: 1;
+                    label: "Save";
+                    clicked => {
+                        root.persist-settings-requested();
+                        root.close-requested();
+                    }
+                }
+            }
+        }
+    }
+}

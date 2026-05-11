@@ -1,0 +1,201 @@
+name: Holo Forensics CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: '37 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_ARTIFACT_NAME: Holo-Forensics-Windows-x64
+  RELEASE_EXE_NAME: Holo-Forensics-Windows-x64.exe
+
+jobs:
+  rust-quality:
+    name: Rust Quality Gates
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Install Rust stable
+        shell: cmd
+        run: .\.github\scripts\install-rust-stable.cmd
+
+      - name: Install Rust quality components
+        shell: cmd
+        run: rustup component add rustfmt clippy
+
+      - name: Restore Cargo target cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: target
+          key: windows-quality-target-${{ runner.os }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            windows-quality-target-${{ runner.os }}-
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run clippy
+        run: cargo clippy --locked --all-targets -- -A warnings -D clippy::correctness -D clippy::suspicious -D clippy::perf
+
+      - name: Run tests
+        run: cargo test --locked
+
+  secrets-scan:
+    name: Secret Scan
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Scan tracked files for secrets
+        shell: powershell
+        run: .\.github\scripts\scan-secrets.ps1
+
+  dependency-audit:
+    name: Dependency Audit
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Install Rust stable
+        shell: cmd
+        run: .\.github\scripts\install-rust-stable.cmd
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Audit Cargo dependencies
+        run: cargo audit --deny warnings
+
+  build-windows-exe:
+    name: Build Windows EXE
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - rust-quality
+      - secrets-scan
+      - dependency-audit
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Install Rust stable
+        shell: cmd
+        run: .\.github\scripts\install-rust-stable.cmd
+
+      - name: Resolve MSVC developer command prompt
+        shell: cmd
+        run: |
+          for /f "usebackq delims=" %%I in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -find Common7\Tools\VsDevCmd.bat`) do set "VS_DEV_CMD=%%I"
+          if not defined VS_DEV_CMD (
+            echo VsDevCmd.bat not found.
+            exit /b 1
+          )
+          >> "%GITHUB_ENV%" echo VS_DEV_CMD=%VS_DEV_CMD%
+
+      - name: Verify runner toolchain
+        shell: cmd
+        run: |
+          call "%VS_DEV_CMD%" -arch=x64 -host_arch=x64
+          if errorlevel 1 exit /b 1
+          cargo --version
+          rustc --version
+          where cl
+          where rc
+
+      - name: Restore Cargo target cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: target
+          key: windows-target-${{ runner.os }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            windows-target-${{ runner.os }}-
+
+      - name: Build release binary
+        shell: cmd
+        run: |
+          call "%VS_DEV_CMD%" -arch=x64 -host_arch=x64
+          if errorlevel 1 exit /b 1
+          cargo build --release --locked
+
+      - name: Stage EXE artifact
+        shell: cmd
+        run: |
+          if not exist dist mkdir dist
+          copy /Y target\release\holo-forensics.exe "dist\%RELEASE_EXE_NAME%"
+          for /f "skip=1 tokens=* delims=" %%H in ('certutil -hashfile "dist\%RELEASE_EXE_NAME%" SHA256') do (
+            set "SHA256=%%H"
+            goto hash_done
+          )
+          :hash_done
+          if not defined SHA256 (
+            echo Failed to compute SHA256 for dist\%RELEASE_EXE_NAME%.
+            exit /b 1
+          )
+          > "dist\%RELEASE_EXE_NAME%.sha256" echo %SHA256%  %RELEASE_EXE_NAME%
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ env.RELEASE_ARTIFACT_NAME }}
+          path: |
+            dist/${{ env.RELEASE_EXE_NAME }}
+            dist/${{ env.RELEASE_EXE_NAME }}.sha256
+          if-no-files-found: error
+
+      - name: Stop Windows text input helper
+        if: always()
+        shell: cmd
+        run: taskkill /IM vctip.exe /F >NUL 2>&1 || exit /b 0
+
+  publish-release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-windows-exe
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+
+    steps:
+      - name: Download EXE artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ env.RELEASE_ARTIFACT_NAME }}
+          path: release-artifacts
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" release-artifacts/* --clobber
+          else
+            gh release create "${RELEASE_TAG}" release-artifacts/* \
+              --title "Holo Forensics ${RELEASE_TAG}" \
+              --generate-notes
+          fi

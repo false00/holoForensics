@@ -1,0 +1,37 @@
+export global ThemeTokens {
+    in property <int> theme-mode: 0;
+    in property <bool> system-dark: true;
+
+    out property <bool> dark: theme-mode == 1 ? true : theme-mode == 2 ? false : system-dark;
+
+    out property <color> midnight: #0B0B0B;
+    out property <color> block: #171615;
+    out property <color> block-background: #242321;
+    out property <color> graphical-text: #4B4E53;
+    out property <color> base: dark ? #0B0B0B : #EEE9DF;
+    out property <color> surface: dark ? #171615 : #FBF7EF;
+    out property <color> card: dark ? #171615 : #FBF7EF;
+    out property <color> panel: dark ? #242321 : #E5DED2;
+    out property <color> stroke: dark ? #4B4E53 : #CFC5B5;
+    out property <color> text: dark ? #EEE9DF : #0B0B0B;
+    out property <color> muted: dark ? #B8B1A6 : #4B4E53;
+    out property <color> placeholder: dark ? #8E887E : #676A6D;
+    out property <color> primary: #1D3F8B;
+    out property <color> primary-hover: #2F9E9E;
+    out property <color> accent-soft: dark ? #163135 : #D8E6DD;
+    out property <color> carmine: #AA0033;
+    out property <color> crimson: #A91F16;
+    out property <color> copal: #C8812A;
+    out property <color> hero: dark ? #171615 : #FBF7EF;
+    out property <color> hero-foreground: dark ? #EEE9DF : #0B0B0B;
+    out property <color> risk: #33BB88;
+    out property <color> risk-hover: #2F9E9E;
+    out property <color> success: #3A8F4E;
+    out property <color> warning: #FFB300;
+    out property <color> console-surface: #0B0B0B;
+    out property <color> overlay: dark ? #0B0B0BD8 : #0B0B0B72;
+
+    out property <length> radius-small: 5px;
+    out property <length> radius-medium: 8px;
+    out property <length> radius-large: 12px;
+}

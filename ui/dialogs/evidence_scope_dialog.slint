@@ -1,0 +1,112 @@
+import { ThemeTokens } from "../theme.slint";
+import { Badge, CardPanel, CollectionSurfaceCard, GhostButton, HelperText, SectionLabel } from "../components.slint";
+import { CollectionSurfaceItem } from "../models.slint";
+import { ScrollView } from "std-widgets.slint";
+
+export component EvidenceScopeDialog inherits Rectangle {
+    in property <int> collection-profile: 0;
+    in property <[CollectionSurfaceItem]> collection-catalog;
+
+    callback close-requested();
+    callback select-collection-requested(int);
+    callback select-all-requested();
+    callback deselect-all-requested();
+    callback open-collection-settings-requested();
+
+    background: ThemeTokens.overlay;
+
+    CardPanel {
+        width: min(860px, parent.width - 32px);
+        height: min(600px, parent.height - 32px);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: ThemeTokens.card;
+
+        VerticalLayout {
+            width: parent.width;
+            height: parent.height;
+            padding: 18px;
+            spacing: 12px;
+
+            HorizontalLayout {
+                height: 26px;
+                spacing: 12px;
+
+                SectionLabel {
+                    horizontal-stretch: 1;
+                    text: "EVIDENCE SCOPE";
+                    vertical-alignment: center;
+                }
+
+                Badge {
+                    width: 132px;
+                    label: root.collection-profile == 0 ? "Full Scope" : root.collection-profile == 1 ? "Triage Scope" : "Custom Scope";
+                }
+            }
+
+            Text {
+                horizontal-stretch: 1;
+                height: 34px;
+                text: "Collection contents";
+                color: ThemeTokens.text;
+                font-family: "Tomorrow";
+                font-size: 26px;
+                font-weight: 300;
+                vertical-alignment: center;
+            }
+
+            HorizontalLayout {
+                height: 38px;
+                spacing: 8px;
+
+                HelperText {
+                    horizontal-stretch: 1;
+                    height: 38px;
+                    text: "Select the evidence groups to package. Some runtime collectors expose Tune.";
+                    vertical-alignment: center;
+                }
+
+                GhostButton {
+                    width: 112px;
+                    label: "Select All";
+                    clicked => { root.select-all-requested(); }
+                }
+
+                GhostButton {
+                    width: 124px;
+                    label: "Deselect All";
+                    clicked => { root.deselect-all-requested(); }
+                }
+
+                GhostButton {
+                    width: 92px;
+                    label: "Close";
+                    clicked => { root.close-requested(); }
+                }
+            }
+
+            ScrollView {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+
+                VerticalLayout {
+                    spacing: 4px;
+
+                    for artifact[index] in root.collection-catalog : CollectionSurfaceCard {
+                        horizontal-stretch: 1;
+                        title: artifact.title;
+                        category: artifact.category;
+                        status: artifact.live ? "Runtime" : artifact.status;
+                        summary: artifact.summary;
+                        targets: artifact.targets;
+                        selected: artifact.selected;
+                        live: artifact.live;
+                        configurable: artifact.configurable;
+                        clicked => { root.select-collection-requested(index); }
+                        settings-clicked => { root.open-collection-settings-requested(); }
+                    }
+                }
+            }
+        }
+    }
+}

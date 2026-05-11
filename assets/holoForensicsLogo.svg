@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Holo Forensics logo">
+  <defs>
+    <filter id="soft-glow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <path d="M55 34h45v68h56V34h45v188h-45v-71h-56v71H55Z" fill="#111117" filter="url(#soft-glow)"/>
+  <path d="M55 34h45l-16 17H55ZM156 34h45v17h-29ZM55 205h45v17H55ZM156 205h45l-16 17h-29ZM100 102h56l-14 15h-42ZM100 136h56v15h-56Z" fill="#36363d" opacity=".72"/>
+
+  <path d="M41 74h39M176 74h39M39 174h44M174 174h33" stroke="#1d3f8b" stroke-width="8" stroke-linecap="square" opacity=".82"/>
+  <path d="M67 95h31M158 95h42M55 193h34M153 193h62" stroke="#00bfa6" stroke-width="7" stroke-linecap="square" opacity=".86"/>
+</svg>
