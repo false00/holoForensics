@@ -68,8 +68,9 @@ const TRIAGE_COLLECTION_TITLES: &[&str] = &[
     "Recycle Bin",
     "Prefetch",
     "$UsnJrnl",
-    "Browser Artifacts",
     "Scheduled Tasks",
+    "PowerShell Activity",
+    "Browser Artifacts",
     "USB and External Devices",
 ];
 const DEFAULT_COLLECTION_USN_CHUNK_INDEX: i32 = 1;
@@ -496,6 +497,7 @@ struct CollectionExecutionRequest {
     collect_srum: bool,
     collect_prefetch: bool,
     collect_scheduled_tasks: bool,
+    collect_powershell_activity: bool,
     collect_browser_artifacts: bool,
     collect_jump_lists: bool,
     collect_lnk: bool,
@@ -1354,6 +1356,11 @@ fn start_collection_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Re
                             elevate: request.elevate,
                         },
                     ),
+                    powershell_activity: request.collect_powershell_activity.then_some(
+                        app::PowerShellActivityCollectionOptions {
+                            elevate: request.elevate,
+                        },
+                    ),
                     browser_artifacts: request.collect_browser_artifacts.then_some(
                         app::BrowserArtifactsCollectionOptions {
                             elevate: request.elevate,
@@ -1862,6 +1869,7 @@ fn collect_collection_request(
         collect_srum,
         collect_prefetch,
         collect_scheduled_tasks,
+        collect_powershell_activity,
         collect_browser_artifacts,
         collect_jump_lists,
         collect_lnk,
@@ -1892,6 +1900,9 @@ fn collect_collection_request(
                 .any(|title| title == "Scheduled Tasks"),
             selected_live_titles
                 .iter()
+                .any(|title| title == "PowerShell Activity"),
+            selected_live_titles
+                .iter()
                 .any(|title| title == "Browser Artifacts"),
             selected_live_titles
                 .iter()
@@ -1915,6 +1926,7 @@ fn collect_collection_request(
         && !collect_srum
         && !collect_prefetch
         && !collect_scheduled_tasks
+        && !collect_powershell_activity
         && !collect_browser_artifacts
         && !collect_jump_lists
         && !collect_lnk
@@ -1962,6 +1974,7 @@ fn collect_collection_request(
         collect_srum,
         collect_prefetch,
         collect_scheduled_tasks,
+        collect_powershell_activity,
         collect_browser_artifacts,
         collect_jump_lists,
         collect_lnk,
@@ -2610,6 +2623,32 @@ fn expected_collection_artifacts(title: &str) -> Vec<(&'static str, &'static str
                 "Scheduled Tasks collection log",
             ),
         ],
+        "PowerShell Activity" => vec![
+            (
+                "C/Users/*/AppData/Roaming/Microsoft/*PowerShell*/PSReadLine/ConsoleHost_history.txt",
+                "Per-user PSReadLine command history preserved from the VSS snapshot",
+            ),
+            (
+                "C/Users/*/Documents/WindowsPowerShell/profile.ps1, Microsoft.PowerShell_profile.ps1, Microsoft.PowerShellISE_profile.ps1, and C/Users/*/Documents/PowerShell/profile.ps1, Microsoft.PowerShell_profile.ps1",
+                "Per-user PowerShell profile scripts preserved without parsing",
+            ),
+            (
+                "C/Users/*/Documents/PowerShell_transcript*.txt and C/Users/*/Documents/*PowerShell*/Transcripts/**/*",
+                "Likely PowerShell transcripts copied when present under user documents paths",
+            ),
+            (
+                "C/Users/*/Documents/*PowerShell*/Modules/**/* and C/Users/*/AppData/*/Microsoft/*PowerShell*/**/*.(ps1|psm1|psd1|ps1xml|clixml|txt|json|xml|config)",
+                "Selective module, script, and configuration files under user PowerShell roots with size limits and skipped-file logging",
+            ),
+            (
+                "$metadata/collectors/C/windows_powershell_activity/manifest.json",
+                "PowerShell Activity collection manifest",
+            ),
+            (
+                "$metadata/collectors/C/windows_powershell_activity/collection.log",
+                "PowerShell Activity collection log",
+            ),
+        ],
         "Browser Artifacts" => vec![
             (
                 "C/Users/*/AppData/Local/Google/Chrome/User Data/*/History*, Cookies*, Web Data*, Login Data*",
@@ -2846,6 +2885,26 @@ fn artifact_detail_for_path(path: &str) -> String {
         "Legacy scheduled task artifact".to_string()
     } else if lower.ends_with("/windows/schedlgu.txt") {
         "Legacy Task Scheduler log".to_string()
+    } else if lower.ends_with("/consolehost_history.txt") {
+        "PowerShell PSReadLine history".to_string()
+    } else if lower.ends_with("/profile.ps1")
+        || lower.ends_with("/microsoft.powershell_profile.ps1")
+        || lower.ends_with("/microsoft.powershellise_profile.ps1")
+    {
+        "PowerShell profile script".to_string()
+    } else if lower.contains("/modules/")
+        && (lower.ends_with(".psm1")
+            || lower.ends_with(".psd1")
+            || lower.ends_with(".ps1")
+            || lower.ends_with(".ps1xml"))
+    {
+        "PowerShell module or script support file".to_string()
+    } else if lower.contains("/transcripts/") || lower.contains("/powershell_transcript") {
+        "PowerShell transcript".to_string()
+    } else if lower.contains("/microsoft/powershell/")
+        || lower.contains("/microsoft/windows/powershell/")
+    {
+        "PowerShell user support artifact".to_string()
     } else if lower.contains("/windows/system32/sru/") {
         "SRUM database or ESE companion file".to_string()
     } else if lower.ends_with("/lnk_manifest.jsonl") {
@@ -4447,6 +4506,9 @@ fn selected_runtime_collectors_label(request: &CollectionExecutionRequest) -> St
     if request.collect_scheduled_tasks {
         labels.push("scheduled-tasks");
     }
+    if request.collect_powershell_activity {
+        labels.push("powershell-activity");
+    }
     if request.collect_browser_artifacts {
         labels.push("browser");
     }
@@ -4600,6 +4662,15 @@ fn build_collection_catalog_records() -> Vec<CollectionCatalogRecord> {
             "Scheduled tasks are a common persistence and execution mechanism with both legacy job files and modern XML-backed task definitions.",
             "Targets: C:\\Windows\\Tasks, C:\\Windows\\SchedLgU.txt, and C:\\Windows\\System32\\Tasks",
             "Included in Create Package today. The live Rust collector uses a VSS snapshot, copies legacy and modern task roots without parsing or event-log duplication, hashes source and destination bytes with SHA-256, and records directory and file metadata in the centralized manifest.",
+            true,
+        ),
+        CollectionCatalogRecord::new(
+            "PowerShell Activity",
+            "Shell + script activity",
+            "Available",
+            "User-scoped PowerShell history, profiles, transcripts, and module roots can preserve commands typed by an operator, helper scripts, persistence logic, and execution context that never survives cleanly in centralized logging.",
+            "Targets: PSReadLine ConsoleHost_history.txt, user profile scripts, likely transcript files, and selected script/config files under user PowerShell roots via VSS snapshot",
+            "Included in Create Package today. The live Rust collector uses a VSS snapshot, enumerates eligible user profiles under Users, copies fixed PowerShell history and profile targets, selectively copies script and config files from PowerShell module/data roots under a size limit, skips registry and EVTX duplication, hashes copied bytes with SHA-256, and records skipped files plus directory metadata in the centralized manifest.",
             true,
         ),
         CollectionCatalogRecord::new(
@@ -5176,6 +5247,27 @@ mod tests {
     }
 
     #[test]
+    fn powershell_activity_collection_catalog_record_is_live_and_describes_snapshot_targets() {
+        let records = build_collection_catalog_records();
+
+        let powershell_activity = records
+            .iter()
+            .find(|record| record.title == "PowerShell Activity")
+            .expect("powershell activity record should exist");
+
+        assert!(powershell_activity.live);
+        assert_eq!(powershell_activity.status, "Available");
+        assert!(
+            powershell_activity
+                .targets
+                .contains("ConsoleHost_history.txt")
+        );
+        assert!(powershell_activity.targets.contains("profile scripts"));
+        assert!(powershell_activity.note.contains("size limit"));
+        assert!(powershell_activity.note.contains("skipped files"));
+    }
+
+    #[test]
     fn lnk_collection_catalog_record_is_live_and_describes_raw_snapshot_copy() {
         let records = build_collection_catalog_records();
 
@@ -5277,6 +5369,40 @@ mod tests {
                 .iter()
                 .any(|item| item.name.contains("windows_scheduled_tasks/manifest.json"))
         );
+    }
+
+    #[test]
+    fn powershell_activity_collection_activity_details_show_expected_powershell_artifacts() {
+        let record = super::CollectionActivityRecord {
+            title: "PowerShell Activity".to_string(),
+            category: "Shell + script activity".to_string(),
+            detail: "PowerShell activity collector is ready.".to_string(),
+            status: "Ready".to_string(),
+            tone: CollectionActivityTone::Ready,
+            active: false,
+            show_progress: false,
+            progress_value: 0.0,
+            progress_text: String::new(),
+            package_pending: false,
+        };
+
+        let details = build_collection_activity_details(Some(&record), None);
+
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("ConsoleHost_history.txt"))
+        );
+        assert!(details.iter().any(|item| item.name.contains("profile")));
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("PowerShell_transcript"))
+        );
+        assert!(details.iter().any(|item| {
+            item.name
+                .contains("windows_powershell_activity/manifest.json")
+        }));
     }
 
     #[test]

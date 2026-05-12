@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::collection;
 use crate::collection_metadata;
 use crate::collections::windows::{
-    browser_artifacts, evtx, indx, jump_lists, lnk, logfile, mft, prefetch, recycle_bin, registry,
-    scheduled_tasks, srum, usn_journal, vss,
+    browser_artifacts, evtx, indx, jump_lists, lnk, logfile, mft, powershell_activity, prefetch,
+    recycle_bin, registry, scheduled_tasks, srum, usn_journal, vss,
 };
 use crate::manifest::{Manifest, ManifestEntry, write_manifest};
 use crate::opensearch::{
@@ -104,6 +104,14 @@ pub struct PrefetchCollectionArchiveRequest {
 
 #[derive(Debug, Clone)]
 pub struct ScheduledTasksCollectionArchiveRequest {
+    pub volumes: Vec<String>,
+    pub output_zip: PathBuf,
+    pub staging_root: Option<PathBuf>,
+    pub elevate: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PowerShellActivityCollectionArchiveRequest {
     pub volumes: Vec<String>,
     pub output_zip: PathBuf,
     pub staging_root: Option<PathBuf>,
@@ -206,6 +214,11 @@ pub struct ScheduledTasksCollectionOptions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PowerShellActivityCollectionOptions {
+    pub elevate: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrowserArtifactsCollectionOptions {
     pub elevate: bool,
 }
@@ -262,6 +275,8 @@ pub struct CollectionArchiveRequest {
     pub prefetch: Option<PrefetchCollectionOptions>,
     #[serde(default)]
     pub scheduled_tasks: Option<ScheduledTasksCollectionOptions>,
+    #[serde(default)]
+    pub powershell_activity: Option<PowerShellActivityCollectionOptions>,
     #[serde(default)]
     pub browser_artifacts: Option<BrowserArtifactsCollectionOptions>,
     #[serde(default)]
@@ -515,6 +530,7 @@ fn collect_collection_archive_direct(
         && request.srum.is_none()
         && request.prefetch.is_none()
         && request.scheduled_tasks.is_none()
+        && request.powershell_activity.is_none()
         && request.browser_artifacts.is_none()
         && request.jump_lists.is_none()
         && request.lnk.is_none()
@@ -621,6 +637,17 @@ fn collect_collection_archive_direct(
                         normalized_volume,
                         &staging_dir,
                         scheduled_tasks_options,
+                        Some(&shadow_copy),
+                        reporter,
+                        &mut archive_entries,
+                        &mut staged_paths,
+                    )?;
+                }
+                if let Some(powershell_activity_options) = request.powershell_activity.as_ref() {
+                    stage_powershell_activity_collection(
+                        normalized_volume,
+                        &staging_dir,
+                        powershell_activity_options,
                         Some(&shadow_copy),
                         reporter,
                         &mut archive_entries,
@@ -807,6 +834,17 @@ fn collect_collection_archive_direct(
                 &mut staged_paths,
             )?;
         }
+        if let Some(powershell_activity_options) = request.powershell_activity.as_ref() {
+            stage_powershell_activity_collection(
+                normalized_volume,
+                &staging_dir,
+                powershell_activity_options,
+                None,
+                reporter,
+                &mut archive_entries,
+                &mut staged_paths,
+            )?;
+        }
         if let Some(browser_options) = request.browser_artifacts.as_ref() {
             stage_browser_artifacts_collection(
                 normalized_volume,
@@ -955,6 +993,7 @@ pub fn collect_usn_archive(
         srum: None,
         prefetch: None,
         scheduled_tasks: None,
+        powershell_activity: None,
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
@@ -981,6 +1020,7 @@ pub fn collect_registry_archive(
         srum: None,
         prefetch: None,
         scheduled_tasks: None,
+        powershell_activity: None,
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
@@ -1006,6 +1046,7 @@ pub fn collect_evtx_archive(
         srum: None,
         prefetch: None,
         scheduled_tasks: None,
+        powershell_activity: None,
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
@@ -1029,6 +1070,7 @@ pub fn collect_mft_archive(
         srum: None,
         prefetch: None,
         scheduled_tasks: None,
+        powershell_activity: None,
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
@@ -1055,6 +1097,7 @@ pub fn collect_logfile_archive(
         srum: None,
         prefetch: None,
         scheduled_tasks: None,
+        powershell_activity: None,
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
@@ -1081,6 +1124,7 @@ pub fn collect_indx_archive(
         srum: None,
         prefetch: None,
         scheduled_tasks: None,
+        powershell_activity: None,
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
@@ -1111,6 +1155,7 @@ pub fn collect_srum_archive(
         }),
         prefetch: None,
         scheduled_tasks: None,
+        powershell_activity: None,
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
@@ -1136,6 +1181,7 @@ pub fn collect_prefetch_archive(
             elevate: request.elevate,
         }),
         scheduled_tasks: None,
+        powershell_activity: None,
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
@@ -1161,6 +1207,33 @@ pub fn collect_scheduled_tasks_archive(
         scheduled_tasks: Some(ScheduledTasksCollectionOptions {
             elevate: request.elevate,
         }),
+        powershell_activity: None,
+        browser_artifacts: None,
+        jump_lists: None,
+        lnk: None,
+        recycle_bin: None,
+        mft: None,
+        logfile: None,
+        indx: None,
+    })
+}
+
+pub fn collect_powershell_activity_archive(
+    request: &PowerShellActivityCollectionArchiveRequest,
+) -> Result<CollectionArchiveSummary> {
+    collect_collection_archive(&CollectionArchiveRequest {
+        volumes: request.volumes.clone(),
+        output_zip: request.output_zip.clone(),
+        staging_root: request.staging_root.clone(),
+        usn: None,
+        registry: None,
+        evtx: None,
+        srum: None,
+        prefetch: None,
+        scheduled_tasks: None,
+        powershell_activity: Some(PowerShellActivityCollectionOptions {
+            elevate: request.elevate,
+        }),
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
@@ -1184,6 +1257,7 @@ pub fn collect_browser_artifacts_archive(
         srum: None,
         prefetch: None,
         scheduled_tasks: None,
+        powershell_activity: None,
         browser_artifacts: Some(BrowserArtifactsCollectionOptions {
             elevate: request.elevate,
         }),
@@ -1209,6 +1283,7 @@ pub fn collect_jump_lists_archive(
         srum: None,
         prefetch: None,
         scheduled_tasks: None,
+        powershell_activity: None,
         browser_artifacts: None,
         jump_lists: Some(JumpListsCollectionOptions {
             elevate: request.elevate,
@@ -1234,6 +1309,7 @@ pub fn collect_lnk_archive(
         srum: None,
         prefetch: None,
         scheduled_tasks: None,
+        powershell_activity: None,
         browser_artifacts: None,
         jump_lists: None,
         lnk: Some(LnkCollectionOptions {
@@ -1259,6 +1335,7 @@ pub fn collect_recycle_bin_archive(
         srum: None,
         prefetch: None,
         scheduled_tasks: None,
+        powershell_activity: None,
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
@@ -1729,6 +1806,11 @@ fn collection_archive_requests_elevation(request: &CollectionArchiveRequest) -> 
             .map(|options| options.elevate)
             .unwrap_or(false)
         || request
+            .powershell_activity
+            .as_ref()
+            .map(|options| options.elevate)
+            .unwrap_or(false)
+        || request
             .browser_artifacts
             .as_ref()
             .map(|options| options.elevate)
@@ -1785,6 +1867,7 @@ fn should_share_vss_snapshot(request: &CollectionArchiveRequest) -> bool {
     let srum_uses_vss = request.srum.is_some();
     let prefetch_uses_vss = request.prefetch.is_some();
     let scheduled_tasks_uses_vss = request.scheduled_tasks.is_some();
+    let powershell_activity_uses_vss = request.powershell_activity.is_some();
     let browser_artifacts_uses_vss = request.browser_artifacts.is_some();
     let jump_lists_uses_vss = request.jump_lists.is_some();
     let lnk_uses_vss = request.lnk.is_some();
@@ -1811,6 +1894,7 @@ fn should_share_vss_snapshot(request: &CollectionArchiveRequest) -> bool {
         srum_uses_vss,
         prefetch_uses_vss,
         scheduled_tasks_uses_vss,
+        powershell_activity_uses_vss,
         browser_artifacts_uses_vss,
         jump_lists_uses_vss,
         lnk_uses_vss,
@@ -2232,6 +2316,79 @@ fn stage_scheduled_tasks_collection(
             "{} copied, {} dirs, {} failed",
             summary.file_records.len(),
             summary.directory_records.len(),
+            summary.failures.len()
+        ),
+        staged_paths: staged_count,
+        artifact_paths,
+    });
+    Ok(())
+}
+
+fn stage_powershell_activity_collection(
+    normalized_volume: &str,
+    staging_dir: &Path,
+    options: &PowerShellActivityCollectionOptions,
+    shared_shadow_copy: Option<&vss::ShadowCopy>,
+    reporter: &mut dyn FnMut(CollectionEvent),
+    archive_entries: &mut Vec<collection::ArchiveEntry>,
+    staged_paths: &mut Vec<PathBuf>,
+) -> Result<()> {
+    reporter(CollectionEvent::CollectorStarted {
+        collection_title: "PowerShell Activity".to_string(),
+        volume: normalized_volume.to_string(),
+        progress_value: 0.02,
+        detail: format!("Preparing PowerShell activity collection on {normalized_volume}."),
+        progress_text: "Starting".to_string(),
+    });
+    let mut progress_reporter = |progress: powershell_activity::PowerShellActivityProgress| {
+        reporter(CollectionEvent::CollectorProgress {
+            collection_title: "PowerShell Activity".to_string(),
+            volume: normalized_volume.to_string(),
+            progress_value: progress.progress_value,
+            detail: progress.detail,
+            progress_text: progress.progress_text,
+        });
+    };
+    let request = powershell_activity::PowerShellActivityCollectRequest {
+        volume: normalized_volume.to_string(),
+        out_dir: staging_dir.to_path_buf(),
+        manifest: Some(powershell_activity::default_manifest_path(
+            staging_dir,
+            normalized_volume,
+        )?),
+        collection_log: Some(powershell_activity::default_collection_log_path(
+            staging_dir,
+            normalized_volume,
+        )?),
+        diagnostic_log: None,
+        elevate: options.elevate,
+    };
+    let summary = if let Some(shadow_copy) = shared_shadow_copy {
+        powershell_activity::collect_with_progress_using_shadow_copy(
+            &request,
+            shadow_copy,
+            &mut progress_reporter,
+        )?
+    } else {
+        powershell_activity::collect_with_progress(&request, &mut progress_reporter)?
+    };
+
+    add_staged_paths_as_archive_entries(staging_dir, &summary.staged_paths, archive_entries)?;
+    let staged_count = summary.staged_paths.len();
+    let artifact_paths = powershell_activity_collection_artifact_paths(&summary);
+    staged_paths.extend(summary.staged_paths);
+    reporter(CollectionEvent::CollectorFinished {
+        collection_title: "PowerShell Activity".to_string(),
+        volume: normalized_volume.to_string(),
+        progress_value: 1.0,
+        detail: format!(
+            "Collected and staged PowerShell activity artifacts from {normalized_volume}."
+        ),
+        progress_text: format!(
+            "{} copied, {} dirs, {} skipped, {} failed",
+            summary.file_records.len(),
+            summary.directory_records.len(),
+            summary.skipped_files.len(),
             summary.failures.len()
         ),
         staged_paths: staged_count,
@@ -2885,6 +3042,26 @@ fn scheduled_tasks_collection_artifact_paths(
     paths
 }
 
+fn powershell_activity_collection_artifact_paths(
+    summary: &powershell_activity::PowerShellActivityCollectSummary,
+) -> Vec<String> {
+    let mut paths = summary
+        .file_records
+        .iter()
+        .map(|record| record.archive_path.clone())
+        .collect::<Vec<_>>();
+    if let Ok(relative_manifest) = summary.manifest_path.strip_prefix(&summary.output_root) {
+        paths.push(normalize_archive_path_string(relative_manifest));
+    }
+    if let Ok(relative_log) = summary
+        .collection_log_path
+        .strip_prefix(&summary.output_root)
+    {
+        paths.push(normalize_archive_path_string(relative_log));
+    }
+    paths
+}
+
 fn browser_artifacts_collection_artifact_paths(
     summary: &browser_artifacts::BrowserArtifactsCollectSummary,
 ) -> Vec<String> {
@@ -3206,6 +3383,7 @@ fn selected_runtime_collector_count(request: &CollectionArchiveRequest) -> usize
         + usize::from(request.srum.is_some())
         + usize::from(request.prefetch.is_some())
         + usize::from(request.scheduled_tasks.is_some())
+        + usize::from(request.powershell_activity.is_some())
         + usize::from(request.browser_artifacts.is_some())
         + usize::from(request.jump_lists.is_some())
         + usize::from(request.lnk.is_some())
@@ -3373,9 +3551,9 @@ mod tests {
     use super::{
         BrowserArtifactsCollectionOptions, CollectionArchiveRequest, EvtxCollectionOptions,
         IndxCollectionOptions, JumpListsCollectionOptions, LnkCollectionOptions,
-        LogFileCollectionOptions, MftCollectionOptions, PrefetchCollectionOptions,
-        RegistryCollectionOptions, ScheduledTasksCollectionOptions, SrumCollectionOptions,
-        UsnCollectionOptions, add_staged_paths_as_archive_entries,
+        LogFileCollectionOptions, MftCollectionOptions, PowerShellActivityCollectionOptions,
+        PrefetchCollectionOptions, RegistryCollectionOptions, ScheduledTasksCollectionOptions,
+        SrumCollectionOptions, UsnCollectionOptions, add_staged_paths_as_archive_entries,
         collection_archive_requests_elevation, should_share_vss_snapshot, usn_archive_raw_path,
     };
     use crate::collection;
@@ -3475,6 +3653,7 @@ mod tests {
             srum: None,
             prefetch: None,
             scheduled_tasks: None,
+            powershell_activity: None,
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
@@ -3507,6 +3686,7 @@ mod tests {
             srum: None,
             prefetch: None,
             scheduled_tasks: None,
+            powershell_activity: None,
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
@@ -3539,6 +3719,7 @@ mod tests {
             srum: None,
             prefetch: None,
             scheduled_tasks: None,
+            powershell_activity: None,
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
@@ -3566,6 +3747,7 @@ mod tests {
             srum: None,
             prefetch: None,
             scheduled_tasks: None,
+            powershell_activity: None,
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
@@ -3590,6 +3772,7 @@ mod tests {
             srum: None,
             prefetch: None,
             scheduled_tasks: None,
+            powershell_activity: None,
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
@@ -3617,6 +3800,7 @@ mod tests {
             srum: None,
             prefetch: None,
             scheduled_tasks: None,
+            powershell_activity: None,
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
@@ -3647,6 +3831,7 @@ mod tests {
             srum: None,
             prefetch: None,
             scheduled_tasks: None,
+            powershell_activity: None,
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
@@ -3682,6 +3867,32 @@ mod tests {
             srum: Some(SrumCollectionOptions { elevate: false }),
             prefetch: None,
             scheduled_tasks: None,
+            powershell_activity: None,
+            browser_artifacts: None,
+            jump_lists: None,
+            lnk: None,
+            recycle_bin: None,
+            mft: None,
+            logfile: None,
+            indx: None,
+        };
+
+        assert!(should_share_vss_snapshot(&request));
+    }
+
+    #[test]
+    fn collection_archive_shares_vss_when_powershell_activity_and_prefetch_are_selected() {
+        let request = CollectionArchiveRequest {
+            volumes: vec!["C:".to_string()],
+            output_zip: PathBuf::from(r"C:\temp\bundle.zip"),
+            staging_root: None,
+            usn: None,
+            registry: None,
+            evtx: None,
+            srum: None,
+            prefetch: Some(PrefetchCollectionOptions { elevate: false }),
+            scheduled_tasks: None,
+            powershell_activity: Some(PowerShellActivityCollectionOptions { elevate: false }),
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
@@ -3709,6 +3920,7 @@ mod tests {
             srum: None,
             prefetch: Some(PrefetchCollectionOptions { elevate: false }),
             scheduled_tasks: None,
+            powershell_activity: None,
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
@@ -3736,6 +3948,7 @@ mod tests {
             srum: None,
             prefetch: None,
             scheduled_tasks: Some(ScheduledTasksCollectionOptions { elevate: false }),
+            powershell_activity: None,
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
@@ -3763,6 +3976,7 @@ mod tests {
             srum: None,
             prefetch: None,
             scheduled_tasks: None,
+            powershell_activity: None,
             browser_artifacts: Some(BrowserArtifactsCollectionOptions { elevate: false }),
             jump_lists: None,
             lnk: None,
@@ -3790,6 +4004,7 @@ mod tests {
             srum: None,
             prefetch: None,
             scheduled_tasks: None,
+            powershell_activity: None,
             browser_artifacts: None,
             jump_lists: Some(JumpListsCollectionOptions { elevate: false }),
             lnk: None,
@@ -3817,6 +4032,7 @@ mod tests {
             srum: None,
             prefetch: None,
             scheduled_tasks: None,
+            powershell_activity: None,
             browser_artifacts: None,
             jump_lists: None,
             lnk: Some(LnkCollectionOptions { elevate: false }),
@@ -3849,6 +4065,7 @@ mod tests {
             srum: None,
             prefetch: None,
             scheduled_tasks: None,
+            powershell_activity: None,
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,

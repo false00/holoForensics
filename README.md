@@ -76,6 +76,7 @@ Holo Forensics has two separate jobs: **Create Package** collects Windows artifa
 | ✅ | Registry Hives | System hives, user hives, service-profile hives, AmCache, BCD, and registry transaction logs |
 | ✅ | Prefetch | `C:\Windows\Prefetch\*.pf`, `Layout.ini`, and `Ag*.db` from a VSS snapshot, with timestamps, file attributes, and SHA-256 metadata |
 | ✅ | Scheduled Tasks | `C:\Windows\Tasks\**`, `C:\Windows\SchedLgU.txt`, and `C:\Windows\System32\Tasks\**` from a VSS snapshot, preserved raw with directory metadata and SHA-256 verification |
+| ✅ | PowerShell Activity | PSReadLine history, user profile scripts, likely transcript files, and selected script/config files from user PowerShell roots in a VSS snapshot, with skipped-file logging and no registry or EVTX duplication |
 | ✅ | Browser Artifacts | Chrome, Edge, Firefox, legacy Edge/WebCache, DPAPI support material, and supporting hives |
 | ✅ | Jump Lists | Per-user AutomaticDestinations and CustomDestinations plus `jump_lists_manifest.jsonl` |
 | ✅ | LNK Files | Recent, Office Recent, Desktop, and Start Menu `.lnk` files from a VSS snapshot, preserved raw with `lnk_manifest.jsonl` and no shortcut-target resolution |
@@ -121,7 +122,7 @@ These surfaces are visible in the desktop collection catalog but do not yet have
 
 The desktop UI supports:
 
-- Collection section: `Full`, `Triage`, and `Custom` profiles are exposed in the UI. The Collection tab presents the Windows collection surfaces listed above, with available live collectors for event logs, registry, Prefetch, Scheduled Tasks, browser artifacts, Jump Lists, LNK Files, Recycle Bin, SRUM, `$MFT`, `$LogFile`, INDX records, and `$UsnJrnl`.
+- Collection section: `Full`, `Triage`, and `Custom` profiles are exposed in the UI. The Collection tab presents the Windows collection surfaces listed above, with available live collectors for event logs, registry, Prefetch, Scheduled Tasks, PowerShell Activity, browser artifacts, Jump Lists, LNK Files, Recycle Bin, SRUM, `$MFT`, `$LogFile`, INDX records, and `$UsnJrnl`.
 - Collection workflow section: when multiple VSS-backed collectors run for the same volume, the package workflow reuses one shared point-in-time VSS snapshot so related artifacts stay aligned.
 - Parse Mode section: inspect a selected zip, detect supported artifact groups, choose which detected groups to run, and write parser results without blocking the UI.
 - Settings section: persist theme and Elasticsearch destination defaults. The password remains session-local.
@@ -150,7 +151,7 @@ output/<collection-name>/
 
 - `src/` -> active Rust CLI and runtime
 - `src/collection_catalog.rs` -> built-in collection catalog and parser-to-collection validation
-- `src/collections/windows/` -> live Windows collector implementations for browser artifacts, EVTX, Jump Lists, LNK Files, Prefetch, Recycle Bin, Scheduled Tasks, registry, `$MFT`, `$LogFile`, INDX records, SRUM, and `$UsnJrnl`
+- `src/collections/windows/` -> live Windows collector implementations for browser artifacts, EVTX, Jump Lists, LNK Files, PowerShell Activity, Prefetch, Recycle Bin, Scheduled Tasks, registry, `$MFT`, `$LogFile`, INDX records, SRUM, and `$UsnJrnl`
 - `src/parsers/windows/` -> native Windows parser implementations for browser history, USN journal, registry, restore-point logs, XP recycle-bin `INFO2`, and Windows Timeline
 - `src/parser_catalog.rs` -> built-in parser family catalog
 - `holoForensics.wiki/` -> parser and collection documentation

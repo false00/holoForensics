@@ -14,6 +14,7 @@ pub const WINDOWS_LOGFILE_COLLECTOR: &str = "windows_logfile";
 pub const WINDOWS_INDX_COLLECTOR: &str = "windows_indx";
 pub const WINDOWS_SRUM_COLLECTOR: &str = "windows_srum";
 pub const WINDOWS_PREFETCH_COLLECTOR: &str = "windows_prefetch";
+pub const WINDOWS_POWERSHELL_ACTIVITY_COLLECTOR: &str = "windows_powershell_activity";
 pub const WINDOWS_BROWSER_ARTIFACTS_COLLECTOR: &str = "windows_browser_artifacts";
 pub const WINDOWS_JUMP_LISTS_COLLECTOR: &str = "windows_jump_lists";
 pub const WINDOWS_LNK_COLLECTOR: &str = "windows_lnk";
@@ -65,9 +66,10 @@ mod tests {
     use super::{
         WINDOWS_BROWSER_ARTIFACTS_COLLECTOR, WINDOWS_EVTX_COLLECTOR, WINDOWS_INDX_COLLECTOR,
         WINDOWS_JUMP_LISTS_COLLECTOR, WINDOWS_LNK_COLLECTOR, WINDOWS_LOGFILE_COLLECTOR,
-        WINDOWS_MFT_COLLECTOR, WINDOWS_PREFETCH_COLLECTOR, WINDOWS_RECYCLE_BIN_COLLECTOR,
-        WINDOWS_REGISTRY_COLLECTOR, WINDOWS_SCHEDULED_TASKS_COLLECTOR, WINDOWS_SRUM_COLLECTOR,
-        collector_log_archive_path, collector_manifest_archive_path,
+        WINDOWS_MFT_COLLECTOR, WINDOWS_POWERSHELL_ACTIVITY_COLLECTOR, WINDOWS_PREFETCH_COLLECTOR,
+        WINDOWS_RECYCLE_BIN_COLLECTOR, WINDOWS_REGISTRY_COLLECTOR,
+        WINDOWS_SCHEDULED_TASKS_COLLECTOR, WINDOWS_SRUM_COLLECTOR, collector_log_archive_path,
+        collector_manifest_archive_path,
     };
 
     #[test]
@@ -134,6 +136,14 @@ mod tests {
                 .join("collectors")
                 .join("C")
                 .join("windows_prefetch")
+                .join("manifest.json")
+        );
+        assert_eq!(
+            collector_manifest_archive_path("c:", WINDOWS_POWERSHELL_ACTIVITY_COLLECTOR)?,
+            PathBuf::from("$metadata")
+                .join("collectors")
+                .join("C")
+                .join("windows_powershell_activity")
                 .join("manifest.json")
         );
         assert_eq!(

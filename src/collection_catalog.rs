@@ -43,6 +43,12 @@ pub fn enabled_collection_definitions() -> Vec<CollectionDefinition> {
             Some("src/collections/windows/prefetch.rs"),
         ),
         collection(
+            "windows_powershell_activity_collection",
+            "windows",
+            "Windows PowerShell Activity",
+            Some("src/collections/windows/powershell_activity.rs"),
+        ),
+        collection(
             "windows_scheduled_tasks_collection",
             "windows",
             "Windows Scheduled Tasks",
@@ -246,6 +252,16 @@ mod tests {
         assert!(collections.iter().any(|definition| {
             definition.name == "windows_prefetch_collection"
                 && definition.implementation_path == Some("src/collections/windows/prefetch.rs")
+        }));
+    }
+
+    #[test]
+    fn enabled_collections_include_powershell_activity_definition() {
+        let collections = enabled_collection_definitions();
+        assert!(collections.iter().any(|definition| {
+            definition.name == "windows_powershell_activity_collection"
+                && definition.implementation_path
+                    == Some("src/collections/windows/powershell_activity.rs")
         }));
     }
 
