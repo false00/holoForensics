@@ -26,7 +26,7 @@ holo-forensics collect-browser-artifacts --volume C: --out-dir C:\temp\browser -
 - Normalizes the selected volume.
 - Attempts to enable `SeBackupPrivilege`, `SeRestorePrivilege`, and `SeSecurityPrivilege`.
 - Creates a native Windows VSS snapshot through the shared Rust VSS helper; no PowerShell or `vssadmin` path is used.
-- In archive collection, reuses the shared VSS snapshot when Browser Artifacts are collected with Registry, EVTX, SRUM, `$MFT`, `$LogFile`, INDX, and/or USN for the same volume.
+- In archive collection, reuses the shared VSS snapshot when Browser Artifacts are collected with Registry, EVTX, SRUM, Jump Lists, `$MFT`, `$LogFile`, INDX, and/or USN for the same volume.
 - Enumerates `C:\Users\*` from the snapshot and copies targeted Chromium artifacts when present:
   - User Data root files: `Local State`, `First Run`, `Last Version`
   - Profile databases and sidecars: `History*`, `Archived History*`, `Network\Cookies*`, `Cookies*`, `Web Data*`, `Login Data*`, `Bookmarks*`, `Preferences`, `Secure Preferences`, `Favicons*`, `Top Sites*`, `Shortcuts*`, `Visited Links`, `Network Action Predictor*`, `Network Persistent State*`, `Reporting and NEL*`, `TransportSecurity*`, `Trust Tokens*`, `DIPS*`, and `QuotaManager*`

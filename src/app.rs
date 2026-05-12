@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::collection;
 use crate::collection_metadata;
 use crate::collections::windows::{
-    browser_artifacts, evtx, indx, logfile, mft, registry, srum, usn_journal, vss,
+    browser_artifacts, evtx, indx, jump_lists, logfile, mft, registry, srum, usn_journal, vss,
 };
 use crate::manifest::{Manifest, ManifestEntry, write_manifest};
 use crate::opensearch::{
@@ -102,6 +102,14 @@ pub struct BrowserArtifactsCollectionArchiveRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct JumpListsCollectionArchiveRequest {
+    pub volumes: Vec<String>,
+    pub output_zip: PathBuf,
+    pub staging_root: Option<PathBuf>,
+    pub elevate: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct MftCollectionArchiveRequest {
     pub volumes: Vec<String>,
     pub output_zip: PathBuf,
@@ -160,6 +168,11 @@ pub struct BrowserArtifactsCollectionOptions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JumpListsCollectionOptions {
+    pub elevate: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MftCollectionOptions {
     pub mode: mft::MftAcquisitionMode,
     pub elevate: bool,
@@ -194,6 +207,8 @@ pub struct CollectionArchiveRequest {
     pub srum: Option<SrumCollectionOptions>,
     #[serde(default)]
     pub browser_artifacts: Option<BrowserArtifactsCollectionOptions>,
+    #[serde(default)]
+    pub jump_lists: Option<JumpListsCollectionOptions>,
     #[serde(default)]
     pub mft: Option<MftCollectionOptions>,
     #[serde(default)]
@@ -438,6 +453,7 @@ fn collect_collection_archive_direct(
         && request.evtx.is_none()
         && request.srum.is_none()
         && request.browser_artifacts.is_none()
+        && request.jump_lists.is_none()
         && request.mft.is_none()
         && request.logfile.is_none()
         && request.indx.is_none()
@@ -529,6 +545,17 @@ fn collect_collection_archive_direct(
                         normalized_volume,
                         &staging_dir,
                         browser_options,
+                        Some(&shadow_copy),
+                        reporter,
+                        &mut archive_entries,
+                        &mut staged_paths,
+                    )?;
+                }
+                if let Some(jump_lists_options) = request.jump_lists.as_ref() {
+                    stage_jump_lists_collection(
+                        normalized_volume,
+                        &staging_dir,
+                        jump_lists_options,
                         Some(&shadow_copy),
                         reporter,
                         &mut archive_entries,
@@ -660,6 +687,17 @@ fn collect_collection_archive_direct(
                 &mut staged_paths,
             )?;
         }
+        if let Some(jump_lists_options) = request.jump_lists.as_ref() {
+            stage_jump_lists_collection(
+                normalized_volume,
+                &staging_dir,
+                jump_lists_options,
+                None,
+                reporter,
+                &mut archive_entries,
+                &mut staged_paths,
+            )?;
+        }
         if let Some(mft_options) = request.mft.as_ref() {
             stage_mft_collection(
                 normalized_volume,
@@ -763,6 +801,7 @@ pub fn collect_usn_archive(
         evtx: None,
         srum: None,
         browser_artifacts: None,
+        jump_lists: None,
         mft: None,
         logfile: None,
         indx: None,
@@ -784,6 +823,7 @@ pub fn collect_registry_archive(
         evtx: None,
         srum: None,
         browser_artifacts: None,
+        jump_lists: None,
         mft: None,
         logfile: None,
         indx: None,
@@ -804,6 +844,7 @@ pub fn collect_evtx_archive(
         }),
         srum: None,
         browser_artifacts: None,
+        jump_lists: None,
         mft: None,
         logfile: None,
         indx: None,
@@ -822,6 +863,7 @@ pub fn collect_mft_archive(
         evtx: None,
         srum: None,
         browser_artifacts: None,
+        jump_lists: None,
         mft: Some(MftCollectionOptions {
             mode: request.mode,
             elevate: request.elevate,
@@ -843,6 +885,7 @@ pub fn collect_logfile_archive(
         evtx: None,
         srum: None,
         browser_artifacts: None,
+        jump_lists: None,
         mft: None,
         logfile: Some(LogFileCollectionOptions {
             mode: request.mode,
@@ -864,6 +907,7 @@ pub fn collect_indx_archive(
         evtx: None,
         srum: None,
         browser_artifacts: None,
+        jump_lists: None,
         mft: None,
         logfile: None,
         indx: Some(IndxCollectionOptions {
@@ -889,6 +933,7 @@ pub fn collect_srum_archive(
             elevate: request.elevate,
         }),
         browser_artifacts: None,
+        jump_lists: None,
         mft: None,
         logfile: None,
         indx: None,
@@ -907,6 +952,28 @@ pub fn collect_browser_artifacts_archive(
         evtx: None,
         srum: None,
         browser_artifacts: Some(BrowserArtifactsCollectionOptions {
+            elevate: request.elevate,
+        }),
+        jump_lists: None,
+        mft: None,
+        logfile: None,
+        indx: None,
+    })
+}
+
+pub fn collect_jump_lists_archive(
+    request: &JumpListsCollectionArchiveRequest,
+) -> Result<CollectionArchiveSummary> {
+    collect_collection_archive(&CollectionArchiveRequest {
+        volumes: request.volumes.clone(),
+        output_zip: request.output_zip.clone(),
+        staging_root: request.staging_root.clone(),
+        usn: None,
+        registry: None,
+        evtx: None,
+        srum: None,
+        browser_artifacts: None,
+        jump_lists: Some(JumpListsCollectionOptions {
             elevate: request.elevate,
         }),
         mft: None,
@@ -1368,6 +1435,11 @@ fn collection_archive_requests_elevation(request: &CollectionArchiveRequest) -> 
             .map(|options| options.elevate)
             .unwrap_or(false)
         || request
+            .jump_lists
+            .as_ref()
+            .map(|options| options.elevate)
+            .unwrap_or(false)
+        || request
             .mft
             .as_ref()
             .map(|options| options.elevate)
@@ -1403,6 +1475,7 @@ fn should_share_vss_snapshot(request: &CollectionArchiveRequest) -> bool {
     let evtx_uses_vss = request.evtx.is_some();
     let srum_uses_vss = request.srum.is_some();
     let browser_artifacts_uses_vss = request.browser_artifacts.is_some();
+    let jump_lists_uses_vss = request.jump_lists.is_some();
     let mft_uses_vss = request
         .mft
         .as_ref()
@@ -1424,6 +1497,7 @@ fn should_share_vss_snapshot(request: &CollectionArchiveRequest) -> bool {
         evtx_uses_vss,
         srum_uses_vss,
         browser_artifacts_uses_vss,
+        jump_lists_uses_vss,
         mft_uses_vss,
         logfile_uses_vss,
         indx_uses_vss,
@@ -1768,6 +1842,79 @@ fn stage_browser_artifacts_collection(
         volume: normalized_volume.to_string(),
         progress_value: 1.0,
         detail: format!("Collected and staged browser artifacts from {normalized_volume}."),
+        progress_text: format!(
+            "{} copied, {} failed",
+            summary.file_records.len(),
+            summary.failures.len()
+        ),
+        staged_paths: staged_count,
+        artifact_paths,
+    });
+    Ok(())
+}
+
+fn stage_jump_lists_collection(
+    normalized_volume: &str,
+    staging_dir: &Path,
+    options: &JumpListsCollectionOptions,
+    shared_shadow_copy: Option<&vss::ShadowCopy>,
+    reporter: &mut dyn FnMut(CollectionEvent),
+    archive_entries: &mut Vec<collection::ArchiveEntry>,
+    staged_paths: &mut Vec<PathBuf>,
+) -> Result<()> {
+    reporter(CollectionEvent::CollectorStarted {
+        collection_title: "Jump Lists".to_string(),
+        volume: normalized_volume.to_string(),
+        progress_value: 0.02,
+        detail: format!("Preparing Jump Lists collection on {normalized_volume}."),
+        progress_text: "Starting".to_string(),
+    });
+    let mut progress_reporter = |progress: jump_lists::JumpListsProgress| {
+        reporter(CollectionEvent::CollectorProgress {
+            collection_title: "Jump Lists".to_string(),
+            volume: normalized_volume.to_string(),
+            progress_value: progress.progress_value,
+            detail: progress.detail,
+            progress_text: progress.progress_text,
+        });
+    };
+    let request = jump_lists::JumpListsCollectRequest {
+        volume: normalized_volume.to_string(),
+        out_dir: staging_dir.to_path_buf(),
+        manifest: Some(jump_lists::default_manifest_path(
+            staging_dir,
+            normalized_volume,
+        )?),
+        artifact_manifest: Some(jump_lists::default_artifact_manifest_path(
+            staging_dir,
+            normalized_volume,
+        )?),
+        collection_log: Some(jump_lists::default_collection_log_path(
+            staging_dir,
+            normalized_volume,
+        )?),
+        diagnostic_log: None,
+        elevate: options.elevate,
+    };
+    let summary = if let Some(shadow_copy) = shared_shadow_copy {
+        jump_lists::collect_with_progress_using_shadow_copy(
+            &request,
+            shadow_copy,
+            &mut progress_reporter,
+        )?
+    } else {
+        jump_lists::collect_with_progress(&request, &mut progress_reporter)?
+    };
+
+    add_staged_paths_as_archive_entries(staging_dir, &summary.staged_paths, archive_entries)?;
+    let staged_count = summary.staged_paths.len();
+    let artifact_paths = jump_lists_collection_artifact_paths(&summary);
+    staged_paths.extend(summary.staged_paths);
+    reporter(CollectionEvent::CollectorFinished {
+        collection_title: "Jump Lists".to_string(),
+        volume: normalized_volume.to_string(),
+        progress_value: 1.0,
+        detail: format!("Collected and staged Jump Lists from {normalized_volume}."),
         progress_text: format!(
             "{} copied, {} failed",
             summary.file_records.len(),
@@ -2125,6 +2272,32 @@ fn browser_artifacts_collection_artifact_paths(
     paths
 }
 
+fn jump_lists_collection_artifact_paths(
+    summary: &jump_lists::JumpListsCollectSummary,
+) -> Vec<String> {
+    let mut paths = summary
+        .file_records
+        .iter()
+        .map(|record| record.archive_path.clone())
+        .collect::<Vec<_>>();
+    if let Ok(relative_jsonl) = summary
+        .artifact_manifest_path
+        .strip_prefix(&summary.output_root)
+    {
+        paths.push(normalize_archive_path_string(relative_jsonl));
+    }
+    if let Ok(relative_manifest) = summary.manifest_path.strip_prefix(&summary.output_root) {
+        paths.push(normalize_archive_path_string(relative_manifest));
+    }
+    if let Ok(relative_log) = summary
+        .collection_log_path
+        .strip_prefix(&summary.output_root)
+    {
+        paths.push(normalize_archive_path_string(relative_log));
+    }
+    paths
+}
+
 fn add_staged_paths_as_archive_entries(
     staging_dir: &Path,
     paths: &[PathBuf],
@@ -2349,6 +2522,7 @@ fn selected_runtime_collector_count(request: &CollectionArchiveRequest) -> usize
         + usize::from(request.evtx.is_some())
         + usize::from(request.srum.is_some())
         + usize::from(request.browser_artifacts.is_some())
+        + usize::from(request.jump_lists.is_some())
         + usize::from(request.mft.is_some())
         + usize::from(request.logfile.is_some())
         + usize::from(request.indx.is_some())
@@ -2511,10 +2685,10 @@ mod tests {
 
     use super::{
         BrowserArtifactsCollectionOptions, CollectionArchiveRequest, EvtxCollectionOptions,
-        IndxCollectionOptions, LogFileCollectionOptions, MftCollectionOptions,
-        RegistryCollectionOptions, SrumCollectionOptions, UsnCollectionOptions,
-        add_staged_paths_as_archive_entries, collection_archive_requests_elevation,
-        should_share_vss_snapshot, usn_archive_raw_path,
+        IndxCollectionOptions, JumpListsCollectionOptions, LogFileCollectionOptions,
+        MftCollectionOptions, RegistryCollectionOptions, SrumCollectionOptions,
+        UsnCollectionOptions, add_staged_paths_as_archive_entries,
+        collection_archive_requests_elevation, should_share_vss_snapshot, usn_archive_raw_path,
     };
     use crate::collection;
     use crate::collection_metadata;
@@ -2612,6 +2786,7 @@ mod tests {
             evtx: None,
             srum: None,
             browser_artifacts: None,
+            jump_lists: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -2639,6 +2814,7 @@ mod tests {
             evtx: None,
             srum: None,
             browser_artifacts: None,
+            jump_lists: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -2666,6 +2842,7 @@ mod tests {
             evtx: None,
             srum: None,
             browser_artifacts: None,
+            jump_lists: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -2688,6 +2865,7 @@ mod tests {
             evtx: Some(EvtxCollectionOptions { elevate: false }),
             srum: None,
             browser_artifacts: None,
+            jump_lists: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -2707,6 +2885,7 @@ mod tests {
             evtx: Some(EvtxCollectionOptions { elevate: false }),
             srum: None,
             browser_artifacts: None,
+            jump_lists: None,
             mft: Some(MftCollectionOptions {
                 mode: mft::MftAcquisitionMode::Vss,
                 elevate: false,
@@ -2729,6 +2908,7 @@ mod tests {
             evtx: None,
             srum: None,
             browser_artifacts: None,
+            jump_lists: None,
             mft: Some(MftCollectionOptions {
                 mode: mft::MftAcquisitionMode::Vss,
                 elevate: false,
@@ -2754,6 +2934,7 @@ mod tests {
             evtx: None,
             srum: None,
             browser_artifacts: None,
+            jump_lists: None,
             mft: Some(MftCollectionOptions {
                 mode: mft::MftAcquisitionMode::Vss,
                 elevate: false,
@@ -2784,6 +2965,7 @@ mod tests {
             evtx: None,
             srum: Some(SrumCollectionOptions { elevate: false }),
             browser_artifacts: None,
+            jump_lists: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -2806,6 +2988,30 @@ mod tests {
             evtx: None,
             srum: None,
             browser_artifacts: Some(BrowserArtifactsCollectionOptions { elevate: false }),
+            jump_lists: None,
+            mft: None,
+            logfile: None,
+            indx: None,
+        };
+
+        assert!(should_share_vss_snapshot(&request));
+    }
+
+    #[test]
+    fn collection_archive_shares_vss_when_jump_lists_and_registry_are_vss_backed() {
+        let request = CollectionArchiveRequest {
+            volumes: vec!["C:".to_string()],
+            output_zip: PathBuf::from(r"C:\temp\bundle.zip"),
+            staging_root: None,
+            usn: None,
+            registry: Some(RegistryCollectionOptions {
+                method: registry::RegistryCollectMethod::VssSnapshot,
+                elevate: false,
+            }),
+            evtx: None,
+            srum: None,
+            browser_artifacts: None,
+            jump_lists: Some(JumpListsCollectionOptions { elevate: false }),
             mft: None,
             logfile: None,
             indx: None,
@@ -2833,6 +3039,7 @@ mod tests {
             evtx: None,
             srum: None,
             browser_artifacts: None,
+            jump_lists: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -2864,6 +3071,9 @@ mod tests {
                 "elevate": true
             },
             "browser_artifacts": {
+                "elevate": true
+            },
+            "jump_lists": {
                 "elevate": true
             },
             "mft": {
@@ -2911,6 +3121,10 @@ mod tests {
                 .browser_artifacts
                 .as_ref()
                 .map(|options| options.elevate),
+            Some(true)
+        );
+        assert_eq!(
+            request.jump_lists.as_ref().map(|options| options.elevate),
             Some(true)
         );
         assert_eq!(

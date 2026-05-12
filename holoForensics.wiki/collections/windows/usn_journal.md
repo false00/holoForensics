@@ -66,7 +66,7 @@ holo-forensics collect-usn-journal --volume C: --out C:\temp\C_usn_journal_J.bin
 - Attempts to enable `SeBackupPrivilege`, `SeManageVolumePrivilege`, and `SeRestorePrivilege`
 - `direct-stream` tries both `\\?\C:\$Extend\$UsnJrnl:$J` and `\\.\C:\$Extend\$UsnJrnl:$J` with shared read/write/delete access
 - VSS-backed modes create and delete temporary native Windows VSS snapshots through Rust bindings to the Windows VSS APIs; the collector does not shell out to PowerShell for snapshot lifecycle management
-- When the desktop/archive workflow collects USN with Registry, EVTX, MFT, `$LogFile`, INDX, SRUM, and/or Browser Artifacts for the same volume, the workflow creates one shared VSS snapshot and passes it into the VSS-backed collectors; standalone USN CLI collection still owns its own snapshot lifecycle
+- When the desktop/archive workflow collects USN with Registry, EVTX, MFT, `$LogFile`, INDX, SRUM, Browser Artifacts, and/or Jump Lists for the same volume, the workflow creates one shared VSS snapshot and passes it into the VSS-backed collectors; standalone USN CLI collection still owns its own snapshot lifecycle
 - `vss-snapshot` reads `$Extend\$UsnJrnl:$J` from the snapshot device path
 - `vss-raw-ntfs` opens the snapshot device itself, parses NTFS, locates `$Extend\$UsnJrnl:$J`, and reads the logical bytes of the named `$DATA` stream through NTFS structures instead of a protected file path
 - By default writes only the active USN window `[FirstUsn, NextUsn)` into the requested output file as a compact dense capture

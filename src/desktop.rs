@@ -63,6 +63,7 @@ const TRIAGE_COLLECTION_TITLES: &[&str] = &[
     "$LogFile",
     "INDX Records",
     "SRUM",
+    "Jump Lists",
     "Prefetch",
     "$UsnJrnl",
     "Browser Artifacts",
@@ -492,6 +493,7 @@ struct CollectionExecutionRequest {
     collect_evtx: bool,
     collect_srum: bool,
     collect_browser_artifacts: bool,
+    collect_jump_lists: bool,
     collect_mft: bool,
     collect_logfile: bool,
     collect_indx: bool,
@@ -1341,6 +1343,11 @@ fn start_collection_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Re
                             elevate: request.elevate,
                         },
                     ),
+                    jump_lists: request.collect_jump_lists.then_some(
+                        app::JumpListsCollectionOptions {
+                            elevate: request.elevate,
+                        },
+                    ),
                     mft: request.collect_mft.then_some(app::MftCollectionOptions {
                         mode: mft::MftAcquisitionMode::Vss,
                         elevate: request.elevate,
@@ -1830,6 +1837,7 @@ fn collect_collection_request(
         collect_evtx,
         collect_srum,
         collect_browser_artifacts,
+        collect_jump_lists,
         collect_mft,
         collect_logfile,
         collect_indx,
@@ -1853,6 +1861,9 @@ fn collect_collection_request(
             selected_live_titles
                 .iter()
                 .any(|title| title == "Browser Artifacts"),
+            selected_live_titles
+                .iter()
+                .any(|title| title == "Jump Lists"),
             selected_live_titles.iter().any(|title| title == "$MFT"),
             selected_live_titles.iter().any(|title| title == "$LogFile"),
             selected_live_titles
@@ -1865,6 +1876,7 @@ fn collect_collection_request(
         && !collect_evtx
         && !collect_srum
         && !collect_browser_artifacts
+        && !collect_jump_lists
         && !collect_mft
         && !collect_logfile
         && !collect_indx
@@ -1907,6 +1919,7 @@ fn collect_collection_request(
         collect_evtx,
         collect_srum,
         collect_browser_artifacts,
+        collect_jump_lists,
         collect_mft,
         collect_logfile,
         collect_indx,
@@ -2333,6 +2346,7 @@ fn build_collection_activity_details(
             | "Windows Event Logs"
             | "SRUM"
             | "Browser Artifacts"
+            | "Jump Lists"
             | "$MFT"
             | "$LogFile"
             | "INDX Records"
@@ -2568,6 +2582,28 @@ fn expected_collection_artifacts(title: &str) -> Vec<(&'static str, &'static str
                 "Browser artifact collection log",
             ),
         ],
+        "Jump Lists" => vec![
+            (
+                "C/Users/*/AppData/Roaming/Microsoft/Windows/Recent/AutomaticDestinations/*.automaticDestinations-ms",
+                "Per-user Automatic Jump Lists preserved from the VSS snapshot",
+            ),
+            (
+                "C/Users/*/AppData/Roaming/Microsoft/Windows/Recent/CustomDestinations/*.customDestinations-ms",
+                "Per-user Custom Jump Lists preserved even when parsing is deferred",
+            ),
+            (
+                "C/jump_lists_manifest.jsonl",
+                "JSONL artifact manifest with source path, profile, artifact type, AppID candidate, timestamps, and SHA-256",
+            ),
+            (
+                "$metadata/collectors/C/windows_jump_lists/manifest.json",
+                "Jump Lists collection manifest",
+            ),
+            (
+                "$metadata/collectors/C/windows_jump_lists/collection.log",
+                "Jump Lists collection log",
+            ),
+        ],
         "$MFT" => vec![
             ("C/$MFT.bin", "Raw Master File Table bytes"),
             ("C/$MFT.bin.sha256", "SHA-256 hash for the collected $MFT"),
@@ -2658,6 +2694,12 @@ fn artifact_detail_for_path(path: &str) -> String {
         "Windows Event Log file".to_string()
     } else if lower.contains("/windows/system32/sru/") {
         "SRUM database or ESE companion file".to_string()
+    } else if lower.ends_with("/jump_lists_manifest.jsonl") {
+        "Jump Lists JSONL artifact manifest".to_string()
+    } else if lower.ends_with(".automaticdestinations-ms")
+        || lower.ends_with(".customdestinations-ms")
+    {
+        "Jump List file".to_string()
     } else if lower.contains("/google/chrome/user data/") {
         "Chrome browser profile artifact".to_string()
     } else if lower.contains("/microsoft/edge/user data/") {
@@ -2696,6 +2738,8 @@ fn artifact_name_for_path(path: &str) -> String {
         "INDX.rawpack".to_string()
     } else if lower.ends_with("indx.rawpack.sha256") {
         "INDX.rawpack.sha256".to_string()
+    } else if lower.ends_with("/jump_lists_manifest.jsonl") {
+        "jump_lists_manifest.jsonl".to_string()
     } else if lower.contains("/windows/system32/sru/") {
         path.rsplit('/')
             .next()
@@ -4226,6 +4270,9 @@ fn selected_runtime_collectors_label(request: &CollectionExecutionRequest) -> St
     if request.collect_browser_artifacts {
         labels.push("browser");
     }
+    if request.collect_jump_lists {
+        labels.push("jump-lists");
+    }
     if request.collect_mft {
         labels.push("mft");
     }
@@ -4327,11 +4374,11 @@ fn build_collection_catalog_records() -> Vec<CollectionCatalogRecord> {
         CollectionCatalogRecord::new(
             "Jump Lists",
             "Recent activity",
-            "Planned",
+            "Available",
             "Jump Lists record application-driven recent-file activity and help show what a user opened through a specific app.",
-            "Targets: AutomaticDestinations and CustomDestinations",
-            "This surface is strong for local, removable, and network path access patterns, especially on Windows 7 and newer hosts.",
-            false,
+            "Targets: per-user AutomaticDestinations and CustomDestinations under AppData\\Roaming\\Microsoft\\Windows\\Recent, plus JSONL inventory and centralized metadata",
+            "Included in Create Package today. The live Rust collector uses a VSS snapshot, walks each eligible user profile under Users, copies Automatic and Custom Jump Lists without modifying the originals, hashes each file with SHA-256, and records an artifact-level JSONL manifest plus centralized collector metadata.",
+            true,
         ),
         CollectionCatalogRecord::new(
             "Recycle Bin",
@@ -4899,6 +4946,14 @@ mod tests {
             .expect("usn record should exist");
         assert!(usn.live);
         assert!(usn.configurable);
+
+        let jump_lists = records
+            .iter()
+            .find(|record| record.title == "Jump Lists")
+            .expect("jump lists record should exist");
+        assert!(jump_lists.live);
+        assert!(!jump_lists.configurable);
+        assert!(jump_lists.targets.contains("AutomaticDestinations"));
     }
 
     #[test]

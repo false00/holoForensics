@@ -1,6 +1,7 @@
 pub mod browser_artifacts;
 pub mod evtx;
 pub mod indx;
+pub mod jump_lists;
 pub mod logfile;
 pub mod mft;
 pub mod registry;

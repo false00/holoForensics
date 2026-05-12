@@ -37,6 +37,12 @@ pub fn enabled_collection_definitions() -> Vec<CollectionDefinition> {
             Some("src/collections/windows/browser_artifacts.rs"),
         ),
         collection(
+            "windows_jump_lists_collection",
+            "windows",
+            "Windows Jump Lists",
+            Some("src/collections/windows/jump_lists.rs"),
+        ),
+        collection(
             "windows_evtx_collection",
             "windows",
             "Windows Event Logs",
@@ -213,6 +219,15 @@ mod tests {
             definition.name == "windows_browser_artifacts_collection"
                 && definition.implementation_path
                     == Some("src/collections/windows/browser_artifacts.rs")
+        }));
+    }
+
+    #[test]
+    fn enabled_collections_include_jump_lists_definition() {
+        let collections = enabled_collection_definitions();
+        assert!(collections.iter().any(|definition| {
+            definition.name == "windows_jump_lists_collection"
+                && definition.implementation_path == Some("src/collections/windows/jump_lists.rs")
         }));
     }
 }

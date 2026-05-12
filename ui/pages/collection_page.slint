@@ -335,15 +335,15 @@ component CollectionActivityDetailPanel inherits Rectangle {
 
                 for item in root.items : Rectangle {
                     horizontal-stretch: 1;
-                    height: 48px;
+                    height: max(48px, row-content.preferred-height);
+                    clip: true;
                     border-radius: ThemeTokens.radius-small;
                     border-width: 1px;
                     border-color: ThemeTokens.stroke;
                     background: ThemeTokens.card;
 
-                    HorizontalLayout {
+                    row-content := HorizontalLayout {
                         width: parent.width;
-                        height: parent.height;
                         padding-left: 9px;
                         padding-right: 9px;
                         padding-top: 7px;
@@ -384,7 +384,7 @@ component CollectionActivityDetailPanel inherits Rectangle {
                             font-size: 10px;
                             font-weight: 500;
                             horizontal-alignment: right;
-                            vertical-alignment: center;
+                            vertical-alignment: top;
                             overflow: elide;
                         }
                     }
@@ -433,6 +433,12 @@ export component CollectionPage inherits Rectangle {
     private property <length> tail-height: max(0px, root.height - (root.page-padding * 2) - (root.page-spacing * 3) - root.header-card-height - root.setup-card-height);
     private property <length> status-max-height: root.compact-layout ? 360px : 318px;
     private property <length> status-min-height: root.compact-layout ? 120px : 90px;
+    private property <length> status-detail-min-width: 280px;
+    private property <length> status-master-min-width: 260px;
+    private property <length> status-split-handle-width: 12px;
+    private property <length> collection-activity-detail-width: 360px;
+    private property <length> status-split-drag-start-width: 360px;
+    private property <length> status-split-drag-start-pointer-x: 0px;
     private property <length> console-collapsed-height: 54px;
     private property <length> console-min-expanded-height: 126px;
     private property <length> console-card-height: root.console-expanded ? max(root.console-min-expanded-height, root.tail-height - root.status-max-height) : root.console-collapsed-height;
@@ -708,13 +714,28 @@ export component CollectionPage inherits Rectangle {
                         text: root.collection-activity-summary;
                     }
 
-                    if !root.compact-layout : HorizontalLayout {
+                    if !root.compact-layout : split-area := Rectangle {
                         horizontal-stretch: 1;
                         vertical-stretch: 1;
-                        spacing: 10px;
+                        clip: true;
+
+                        private property <length> clamped-detail-width: max(
+                            root.status-detail-min-width,
+                            min(
+                                root.collection-activity-detail-width,
+                                self.width - root.status-master-min-width - root.status-split-handle-width
+                            )
+                        );
+                        private property <length> activity-list-width: max(
+                            0px,
+                            self.width - self.clamped-detail-width - root.status-split-handle-width
+                        );
 
                         ScrollView {
-                            horizontal-stretch: 1;
+                            x: 0px;
+                            y: 0px;
+                            width: split-area.activity-list-width;
+                            height: parent.height;
 
                             VerticalLayout {
                                 width: max(0px, parent.width - 10px);
@@ -739,8 +760,60 @@ export component CollectionPage inherits Rectangle {
                             }
                         }
 
+                        split-divider := Rectangle {
+                            x: split-area.activity-list-width;
+                            y: 0px;
+                            width: root.status-split-handle-width;
+                            height: parent.height;
+                            background: transparent;
+
+                            Rectangle {
+                                x: (parent.width - self.width) / 2;
+                                y: 10px;
+                                width: 2px;
+                                height: max(0px, parent.height - 20px);
+                                border-radius: 1px;
+                                background: split-touch.pressed ? ThemeTokens.primary.with-alpha(0.55) : split-touch.has-hover ? ThemeTokens.primary.with-alpha(0.34) : ThemeTokens.stroke;
+                            }
+
+                            Rectangle {
+                                x: 2px;
+                                y: max(8px, (parent.height - self.height) / 2);
+                                width: max(0px, parent.width - 4px);
+                                height: 42px;
+                                border-radius: 6px;
+                                background: split-touch.pressed ? ThemeTokens.primary.with-alpha(0.16) : split-touch.has-hover ? ThemeTokens.accent-soft : transparent;
+                            }
+
+                            split-touch := TouchArea {
+                                width: parent.width;
+                                height: parent.height;
+                                mouse-cursor: ew-resize;
+
+                                pointer-event(event) => {
+                                    if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                                        root.status-split-drag-start-width = split-area.clamped-detail-width;
+                                        root.status-split-drag-start-pointer-x = split-touch.absolute-position.x + split-touch.pressed-x;
+                                    }
+                                }
+
+                                moved => {
+                                    root.collection-activity-detail-width = max(
+                                        root.status-detail-min-width,
+                                        min(
+                                            root.status-split-drag-start-width - ((split-touch.absolute-position.x + split-touch.mouse-x) - root.status-split-drag-start-pointer-x),
+                                            split-area.width - root.status-master-min-width - root.status-split-handle-width
+                                        )
+                                    );
+                                }
+                            }
+                        }
+
                         CollectionActivityDetailPanel {
-                            width: 360px;
+                            x: split-area.activity-list-width + root.status-split-handle-width;
+                            y: 0px;
+                            width: split-area.clamped-detail-width;
+                            height: parent.height;
                             title: root.collection-activity-detail-title;
                             status: root.collection-activity-detail-status;
                             summary: root.collection-activity-detail-summary;
