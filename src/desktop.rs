@@ -492,6 +492,7 @@ struct CollectionExecutionRequest {
     collect_registry: bool,
     collect_evtx: bool,
     collect_srum: bool,
+    collect_prefetch: bool,
     collect_browser_artifacts: bool,
     collect_jump_lists: bool,
     collect_mft: bool,
@@ -1338,6 +1339,11 @@ fn start_collection_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Re
                     srum: request.collect_srum.then_some(app::SrumCollectionOptions {
                         elevate: request.elevate,
                     }),
+                    prefetch: request
+                        .collect_prefetch
+                        .then_some(app::PrefetchCollectionOptions {
+                            elevate: request.elevate,
+                        }),
                     browser_artifacts: request.collect_browser_artifacts.then_some(
                         app::BrowserArtifactsCollectionOptions {
                             elevate: request.elevate,
@@ -1836,6 +1842,7 @@ fn collect_collection_request(
         collect_registry,
         collect_evtx,
         collect_srum,
+        collect_prefetch,
         collect_browser_artifacts,
         collect_jump_lists,
         collect_mft,
@@ -1858,6 +1865,7 @@ fn collect_collection_request(
                 .iter()
                 .any(|title| title == "Windows Event Logs"),
             selected_live_titles.iter().any(|title| title == "SRUM"),
+            selected_live_titles.iter().any(|title| title == "Prefetch"),
             selected_live_titles
                 .iter()
                 .any(|title| title == "Browser Artifacts"),
@@ -1875,6 +1883,7 @@ fn collect_collection_request(
         && !collect_registry
         && !collect_evtx
         && !collect_srum
+        && !collect_prefetch
         && !collect_browser_artifacts
         && !collect_jump_lists
         && !collect_mft
@@ -1918,6 +1927,7 @@ fn collect_collection_request(
         collect_registry,
         collect_evtx,
         collect_srum,
+        collect_prefetch,
         collect_browser_artifacts,
         collect_jump_lists,
         collect_mft,
@@ -2345,6 +2355,7 @@ fn build_collection_activity_details(
             | "$UsnJrnl"
             | "Windows Event Logs"
             | "SRUM"
+            | "Prefetch"
             | "Browser Artifacts"
             | "Jump Lists"
             | "$MFT"
@@ -2528,6 +2539,32 @@ fn expected_collection_artifacts(title: &str) -> Vec<(&'static str, &'static str
                 "SRUM collection log",
             ),
         ],
+        "Prefetch" => vec![
+            (
+                "C/Windows/Prefetch/*.pf",
+                "Application Prefetch files preserved from the VSS snapshot",
+            ),
+            (
+                "C/Windows/Prefetch/NTOSBOOT-B00DFAAD.pf",
+                "Boot Prefetch file when present",
+            ),
+            (
+                "C/Windows/Prefetch/Layout.ini",
+                "Layout guidance file from the snapshot when present",
+            ),
+            (
+                "C/Windows/Prefetch/Ag*.db",
+                "Superfetch or ReadyBoot databases when present in the Prefetch directory",
+            ),
+            (
+                "$metadata/collectors/C/windows_prefetch/manifest.json",
+                "Prefetch collection manifest",
+            ),
+            (
+                "$metadata/collectors/C/windows_prefetch/collection.log",
+                "Prefetch collection log",
+            ),
+        ],
         "Browser Artifacts" => vec![
             (
                 "C/Users/*/AppData/Local/Google/Chrome/User Data/*/History*, Cookies*, Web Data*, Login Data*",
@@ -2692,6 +2729,16 @@ fn artifact_detail_for_path(path: &str) -> String {
         "Boot configuration data".to_string()
     } else if lower.ends_with(".evtx") {
         "Windows Event Log file".to_string()
+    } else if lower.contains("/windows/prefetch/") {
+        if lower.ends_with(".pf") {
+            "Windows Prefetch execution artifact".to_string()
+        } else if lower.ends_with("layout.ini") {
+            "Prefetch layout guidance file".to_string()
+        } else if lower.ends_with(".db") {
+            "Superfetch or ReadyBoot database from the Prefetch directory".to_string()
+        } else {
+            "Prefetch directory artifact".to_string()
+        }
     } else if lower.contains("/windows/system32/sru/") {
         "SRUM database or ESE companion file".to_string()
     } else if lower.ends_with("/jump_lists_manifest.jsonl") {
@@ -4267,6 +4314,9 @@ fn selected_runtime_collectors_label(request: &CollectionExecutionRequest) -> St
     if request.collect_srum {
         labels.push("srum");
     }
+    if request.collect_prefetch {
+        labels.push("prefetch");
+    }
     if request.collect_browser_artifacts {
         labels.push("browser");
     }
@@ -4319,11 +4369,11 @@ fn build_collection_catalog_records() -> Vec<CollectionCatalogRecord> {
         CollectionCatalogRecord::new(
             "Prefetch",
             "Program execution",
-            "Planned",
+            "Available",
             "Prefetch is one of the strongest native Windows execution artifacts and often survives even when the executable is later deleted.",
-            "Targets: C:\\Windows\\Prefetch\\*.pf",
-            "This is top-tier proof that a program ran, with executable identity, run count, first and last execution timing, and early-loaded file references.",
-            false,
+            "Targets: C:\\Windows\\Prefetch\\*.pf, Layout.ini, and Ag*.db via VSS snapshot",
+            "Included in Create Package today. The live Rust collector uses a VSS snapshot, copies targeted Prefetch artifacts from the snapshot rather than the live path, streams bytes while hashing, and records source timestamps, file attributes, and snapshot metadata in the centralized manifest.",
+            true,
         ),
         CollectionCatalogRecord::new(
             "$MFT",
@@ -4954,6 +5004,49 @@ mod tests {
         assert!(jump_lists.live);
         assert!(!jump_lists.configurable);
         assert!(jump_lists.targets.contains("AutomaticDestinations"));
+    }
+
+    #[test]
+    fn prefetch_collection_catalog_record_is_live_and_describes_vss_targets() {
+        let records = build_collection_catalog_records();
+
+        let prefetch = records
+            .iter()
+            .find(|record| record.title == "Prefetch")
+            .expect("prefetch record should exist");
+
+        assert!(prefetch.live);
+        assert_eq!(prefetch.status, "Available");
+        assert!(prefetch.targets.contains("Layout.ini"));
+        assert!(prefetch.targets.contains("Ag*.db"));
+        assert!(prefetch.note.contains("file attributes"));
+    }
+
+    #[test]
+    fn prefetch_collection_activity_details_show_expected_prefetch_artifacts() {
+        let record = super::CollectionActivityRecord {
+            title: "Prefetch".to_string(),
+            category: "Program execution".to_string(),
+            detail: "Prefetch collector is ready.".to_string(),
+            status: "Ready".to_string(),
+            tone: CollectionActivityTone::Ready,
+            active: false,
+            show_progress: false,
+            progress_value: 0.0,
+            progress_text: String::new(),
+            package_pending: false,
+        };
+
+        let details = build_collection_activity_details(Some(&record), None);
+
+        assert!(details.iter().any(|item| item.name.contains("*.pf")));
+        assert!(details.iter().any(|item| item.name.contains("Layout.ini")));
+        assert!(details.iter().any(|item| item.name.contains("Ag*.db")));
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("windows_prefetch/manifest.json"))
+        );
     }
 
     #[test]

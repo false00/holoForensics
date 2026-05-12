@@ -4,7 +4,7 @@ use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 
 use holo_forensics::app::{self, ParseCli, ParseRunOptions};
 use holo_forensics::collections::windows::{
-    browser_artifacts, evtx, indx, jump_lists, logfile, mft, registry, srum, usn_journal,
+    browser_artifacts, evtx, indx, jump_lists, logfile, mft, prefetch, registry, srum, usn_journal,
 };
 use holo_forensics::desktop::{DesktopLaunchOptions, DesktopScreenshotState, DesktopThemeOverride};
 
@@ -86,6 +86,9 @@ enum Command {
     #[command(name = "collect-srum")]
     CollectSrum(srum::SrumCollectCli),
 
+    #[command(name = "collect-prefetch")]
+    CollectPrefetch(prefetch::PrefetchCollectCli),
+
     #[command(name = "collect-browser-artifacts")]
     CollectBrowserArtifacts(browser_artifacts::BrowserArtifactsCollectCli),
 
@@ -131,6 +134,7 @@ fn main() {
         Some(Command::CollectLogFile(args)) => logfile::run(&args),
         Some(Command::CollectIndx(args)) => indx::run(&args),
         Some(Command::CollectSrum(args)) => srum::run(&args),
+        Some(Command::CollectPrefetch(args)) => prefetch::run(&args),
         Some(Command::CollectBrowserArtifacts(args)) => browser_artifacts::run(&args),
         Some(Command::CollectJumpLists(args)) => jump_lists::run(&args),
         Some(Command::CollectCollectionArchiveWorker(args)) => {
@@ -407,6 +411,28 @@ mod tests {
                 assert_eq!(args.out_dir, PathBuf::from(r"C:\temp\srum"));
             }
             _ => panic!("collect-srum was not parsed"),
+        }
+    }
+
+    #[test]
+    fn parses_collect_prefetch_subcommand() {
+        let cli = Cli::try_parse_from([
+            "holo-forensics",
+            "collect-prefetch",
+            "--volume",
+            "C:",
+            "--out-dir",
+            r"C:\temp\prefetch",
+        ])
+        .expect("collect-prefetch should parse");
+
+        match cli.command {
+            Some(Command::CollectPrefetch(args)) => {
+                assert_eq!(args.volume, "C:");
+                assert_eq!(args.out_dir, PathBuf::from(r"C:\temp\prefetch"));
+                assert!(args.manifest.is_none());
+            }
+            _ => panic!("collect-prefetch was not parsed"),
         }
     }
 

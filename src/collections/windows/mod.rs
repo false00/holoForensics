@@ -4,6 +4,7 @@ pub mod indx;
 pub mod jump_lists;
 pub mod logfile;
 pub mod mft;
+pub mod prefetch;
 pub mod registry;
 pub mod srum;
 pub mod usn_journal;

@@ -37,6 +37,12 @@ pub fn enabled_collection_definitions() -> Vec<CollectionDefinition> {
             Some("src/collections/windows/browser_artifacts.rs"),
         ),
         collection(
+            "windows_prefetch_collection",
+            "windows",
+            "Windows Prefetch",
+            Some("src/collections/windows/prefetch.rs"),
+        ),
+        collection(
             "windows_jump_lists_collection",
             "windows",
             "Windows Jump Lists",
@@ -219,6 +225,15 @@ mod tests {
             definition.name == "windows_browser_artifacts_collection"
                 && definition.implementation_path
                     == Some("src/collections/windows/browser_artifacts.rs")
+        }));
+    }
+
+    #[test]
+    fn enabled_collections_include_prefetch_definition() {
+        let collections = enabled_collection_definitions();
+        assert!(collections.iter().any(|definition| {
+            definition.name == "windows_prefetch_collection"
+                && definition.implementation_path == Some("src/collections/windows/prefetch.rs")
         }));
     }
 

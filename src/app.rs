@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::collection;
 use crate::collection_metadata;
 use crate::collections::windows::{
-    browser_artifacts, evtx, indx, jump_lists, logfile, mft, registry, srum, usn_journal, vss,
+    browser_artifacts, evtx, indx, jump_lists, logfile, mft, prefetch, registry, srum, usn_journal,
+    vss,
 };
 use crate::manifest::{Manifest, ManifestEntry, write_manifest};
 use crate::opensearch::{
@@ -94,6 +95,14 @@ pub struct SrumCollectionArchiveRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct PrefetchCollectionArchiveRequest {
+    pub volumes: Vec<String>,
+    pub output_zip: PathBuf,
+    pub staging_root: Option<PathBuf>,
+    pub elevate: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct BrowserArtifactsCollectionArchiveRequest {
     pub volumes: Vec<String>,
     pub output_zip: PathBuf,
@@ -163,6 +172,11 @@ pub struct SrumCollectionOptions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrefetchCollectionOptions {
+    pub elevate: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrowserArtifactsCollectionOptions {
     pub elevate: bool,
 }
@@ -205,6 +219,8 @@ pub struct CollectionArchiveRequest {
     pub evtx: Option<EvtxCollectionOptions>,
     #[serde(default)]
     pub srum: Option<SrumCollectionOptions>,
+    #[serde(default)]
+    pub prefetch: Option<PrefetchCollectionOptions>,
     #[serde(default)]
     pub browser_artifacts: Option<BrowserArtifactsCollectionOptions>,
     #[serde(default)]
@@ -452,6 +468,7 @@ fn collect_collection_archive_direct(
         && request.registry.is_none()
         && request.evtx.is_none()
         && request.srum.is_none()
+        && request.prefetch.is_none()
         && request.browser_artifacts.is_none()
         && request.jump_lists.is_none()
         && request.mft.is_none()
@@ -534,6 +551,17 @@ fn collect_collection_archive_direct(
                         normalized_volume,
                         &staging_dir,
                         srum_options,
+                        Some(&shadow_copy),
+                        reporter,
+                        &mut archive_entries,
+                        &mut staged_paths,
+                    )?;
+                }
+                if let Some(prefetch_options) = request.prefetch.as_ref() {
+                    stage_prefetch_collection(
+                        normalized_volume,
+                        &staging_dir,
+                        prefetch_options,
                         Some(&shadow_copy),
                         reporter,
                         &mut archive_entries,
@@ -676,6 +704,17 @@ fn collect_collection_archive_direct(
                 &mut staged_paths,
             )?;
         }
+        if let Some(prefetch_options) = request.prefetch.as_ref() {
+            stage_prefetch_collection(
+                normalized_volume,
+                &staging_dir,
+                prefetch_options,
+                None,
+                reporter,
+                &mut archive_entries,
+                &mut staged_paths,
+            )?;
+        }
         if let Some(browser_options) = request.browser_artifacts.as_ref() {
             stage_browser_artifacts_collection(
                 normalized_volume,
@@ -800,6 +839,7 @@ pub fn collect_usn_archive(
         registry: None,
         evtx: None,
         srum: None,
+        prefetch: None,
         browser_artifacts: None,
         jump_lists: None,
         mft: None,
@@ -822,6 +862,7 @@ pub fn collect_registry_archive(
         }),
         evtx: None,
         srum: None,
+        prefetch: None,
         browser_artifacts: None,
         jump_lists: None,
         mft: None,
@@ -843,6 +884,7 @@ pub fn collect_evtx_archive(
             elevate: request.elevate,
         }),
         srum: None,
+        prefetch: None,
         browser_artifacts: None,
         jump_lists: None,
         mft: None,
@@ -862,6 +904,7 @@ pub fn collect_mft_archive(
         registry: None,
         evtx: None,
         srum: None,
+        prefetch: None,
         browser_artifacts: None,
         jump_lists: None,
         mft: Some(MftCollectionOptions {
@@ -884,6 +927,7 @@ pub fn collect_logfile_archive(
         registry: None,
         evtx: None,
         srum: None,
+        prefetch: None,
         browser_artifacts: None,
         jump_lists: None,
         mft: None,
@@ -906,6 +950,7 @@ pub fn collect_indx_archive(
         registry: None,
         evtx: None,
         srum: None,
+        prefetch: None,
         browser_artifacts: None,
         jump_lists: None,
         mft: None,
@@ -932,6 +977,29 @@ pub fn collect_srum_archive(
         srum: Some(SrumCollectionOptions {
             elevate: request.elevate,
         }),
+        prefetch: None,
+        browser_artifacts: None,
+        jump_lists: None,
+        mft: None,
+        logfile: None,
+        indx: None,
+    })
+}
+
+pub fn collect_prefetch_archive(
+    request: &PrefetchCollectionArchiveRequest,
+) -> Result<CollectionArchiveSummary> {
+    collect_collection_archive(&CollectionArchiveRequest {
+        volumes: request.volumes.clone(),
+        output_zip: request.output_zip.clone(),
+        staging_root: request.staging_root.clone(),
+        usn: None,
+        registry: None,
+        evtx: None,
+        srum: None,
+        prefetch: Some(PrefetchCollectionOptions {
+            elevate: request.elevate,
+        }),
         browser_artifacts: None,
         jump_lists: None,
         mft: None,
@@ -951,6 +1019,7 @@ pub fn collect_browser_artifacts_archive(
         registry: None,
         evtx: None,
         srum: None,
+        prefetch: None,
         browser_artifacts: Some(BrowserArtifactsCollectionOptions {
             elevate: request.elevate,
         }),
@@ -972,6 +1041,7 @@ pub fn collect_jump_lists_archive(
         registry: None,
         evtx: None,
         srum: None,
+        prefetch: None,
         browser_artifacts: None,
         jump_lists: Some(JumpListsCollectionOptions {
             elevate: request.elevate,
@@ -1430,6 +1500,11 @@ fn collection_archive_requests_elevation(request: &CollectionArchiveRequest) -> 
             .map(|options| options.elevate)
             .unwrap_or(false)
         || request
+            .prefetch
+            .as_ref()
+            .map(|options| options.elevate)
+            .unwrap_or(false)
+        || request
             .browser_artifacts
             .as_ref()
             .map(|options| options.elevate)
@@ -1474,6 +1549,7 @@ fn should_share_vss_snapshot(request: &CollectionArchiveRequest) -> bool {
         .unwrap_or(false);
     let evtx_uses_vss = request.evtx.is_some();
     let srum_uses_vss = request.srum.is_some();
+    let prefetch_uses_vss = request.prefetch.is_some();
     let browser_artifacts_uses_vss = request.browser_artifacts.is_some();
     let jump_lists_uses_vss = request.jump_lists.is_some();
     let mft_uses_vss = request
@@ -1496,6 +1572,7 @@ fn should_share_vss_snapshot(request: &CollectionArchiveRequest) -> bool {
         registry_uses_vss,
         evtx_uses_vss,
         srum_uses_vss,
+        prefetch_uses_vss,
         browser_artifacts_uses_vss,
         jump_lists_uses_vss,
         mft_uses_vss,
@@ -1773,6 +1850,75 @@ fn stage_srum_collection(
         volume: normalized_volume.to_string(),
         progress_value: 1.0,
         detail: format!("Collected and staged SRUM files from {normalized_volume}."),
+        progress_text: format!(
+            "{} copied, {} failed",
+            summary.file_records.len(),
+            summary.failures.len()
+        ),
+        staged_paths: staged_count,
+        artifact_paths,
+    });
+    Ok(())
+}
+
+fn stage_prefetch_collection(
+    normalized_volume: &str,
+    staging_dir: &Path,
+    options: &PrefetchCollectionOptions,
+    shared_shadow_copy: Option<&vss::ShadowCopy>,
+    reporter: &mut dyn FnMut(CollectionEvent),
+    archive_entries: &mut Vec<collection::ArchiveEntry>,
+    staged_paths: &mut Vec<PathBuf>,
+) -> Result<()> {
+    reporter(CollectionEvent::CollectorStarted {
+        collection_title: "Prefetch".to_string(),
+        volume: normalized_volume.to_string(),
+        progress_value: 0.02,
+        detail: format!("Preparing Prefetch collection on {normalized_volume}."),
+        progress_text: "Starting".to_string(),
+    });
+    let mut progress_reporter = |progress: prefetch::PrefetchProgress| {
+        reporter(CollectionEvent::CollectorProgress {
+            collection_title: "Prefetch".to_string(),
+            volume: normalized_volume.to_string(),
+            progress_value: progress.progress_value,
+            detail: progress.detail,
+            progress_text: progress.progress_text,
+        });
+    };
+    let request = prefetch::PrefetchCollectRequest {
+        volume: normalized_volume.to_string(),
+        out_dir: staging_dir.to_path_buf(),
+        manifest: Some(prefetch::default_manifest_path(
+            staging_dir,
+            normalized_volume,
+        )?),
+        collection_log: Some(prefetch::default_collection_log_path(
+            staging_dir,
+            normalized_volume,
+        )?),
+        diagnostic_log: None,
+        elevate: options.elevate,
+    };
+    let summary = if let Some(shadow_copy) = shared_shadow_copy {
+        prefetch::collect_with_progress_using_shadow_copy(
+            &request,
+            shadow_copy,
+            &mut progress_reporter,
+        )?
+    } else {
+        prefetch::collect_with_progress(&request, &mut progress_reporter)?
+    };
+
+    add_staged_paths_as_archive_entries(staging_dir, &summary.staged_paths, archive_entries)?;
+    let staged_count = summary.staged_paths.len();
+    let artifact_paths = prefetch_collection_artifact_paths(&summary);
+    staged_paths.extend(summary.staged_paths);
+    reporter(CollectionEvent::CollectorFinished {
+        collection_title: "Prefetch".to_string(),
+        volume: normalized_volume.to_string(),
+        progress_value: 1.0,
+        detail: format!("Collected and staged Prefetch files from {normalized_volume}."),
         progress_text: format!(
             "{} copied, {} failed",
             summary.file_records.len(),
@@ -2252,6 +2398,24 @@ fn srum_collection_artifact_paths(summary: &srum::SrumCollectSummary) -> Vec<Str
     paths
 }
 
+fn prefetch_collection_artifact_paths(summary: &prefetch::PrefetchCollectSummary) -> Vec<String> {
+    let mut paths = summary
+        .file_records
+        .iter()
+        .map(|record| record.archive_path.clone())
+        .collect::<Vec<_>>();
+    if let Ok(relative_manifest) = summary.manifest_path.strip_prefix(&summary.output_root) {
+        paths.push(normalize_archive_path_string(relative_manifest));
+    }
+    if let Ok(relative_log) = summary
+        .collection_log_path
+        .strip_prefix(&summary.output_root)
+    {
+        paths.push(normalize_archive_path_string(relative_log));
+    }
+    paths
+}
+
 fn browser_artifacts_collection_artifact_paths(
     summary: &browser_artifacts::BrowserArtifactsCollectSummary,
 ) -> Vec<String> {
@@ -2521,6 +2685,7 @@ fn selected_runtime_collector_count(request: &CollectionArchiveRequest) -> usize
         + usize::from(request.registry.is_some())
         + usize::from(request.evtx.is_some())
         + usize::from(request.srum.is_some())
+        + usize::from(request.prefetch.is_some())
         + usize::from(request.browser_artifacts.is_some())
         + usize::from(request.jump_lists.is_some())
         + usize::from(request.mft.is_some())
@@ -2686,8 +2851,8 @@ mod tests {
     use super::{
         BrowserArtifactsCollectionOptions, CollectionArchiveRequest, EvtxCollectionOptions,
         IndxCollectionOptions, JumpListsCollectionOptions, LogFileCollectionOptions,
-        MftCollectionOptions, RegistryCollectionOptions, SrumCollectionOptions,
-        UsnCollectionOptions, add_staged_paths_as_archive_entries,
+        MftCollectionOptions, PrefetchCollectionOptions, RegistryCollectionOptions,
+        SrumCollectionOptions, UsnCollectionOptions, add_staged_paths_as_archive_entries,
         collection_archive_requests_elevation, should_share_vss_snapshot, usn_archive_raw_path,
     };
     use crate::collection;
@@ -2785,6 +2950,7 @@ mod tests {
             }),
             evtx: None,
             srum: None,
+            prefetch: None,
             browser_artifacts: None,
             jump_lists: None,
             mft: None,
@@ -2813,6 +2979,7 @@ mod tests {
             }),
             evtx: None,
             srum: None,
+            prefetch: None,
             browser_artifacts: None,
             jump_lists: None,
             mft: None,
@@ -2841,6 +3008,7 @@ mod tests {
             }),
             evtx: None,
             srum: None,
+            prefetch: None,
             browser_artifacts: None,
             jump_lists: None,
             mft: None,
@@ -2864,6 +3032,7 @@ mod tests {
             }),
             evtx: Some(EvtxCollectionOptions { elevate: false }),
             srum: None,
+            prefetch: None,
             browser_artifacts: None,
             jump_lists: None,
             mft: None,
@@ -2884,6 +3053,7 @@ mod tests {
             registry: None,
             evtx: Some(EvtxCollectionOptions { elevate: false }),
             srum: None,
+            prefetch: None,
             browser_artifacts: None,
             jump_lists: None,
             mft: Some(MftCollectionOptions {
@@ -2907,6 +3077,7 @@ mod tests {
             registry: None,
             evtx: None,
             srum: None,
+            prefetch: None,
             browser_artifacts: None,
             jump_lists: None,
             mft: Some(MftCollectionOptions {
@@ -2933,6 +3104,7 @@ mod tests {
             registry: None,
             evtx: None,
             srum: None,
+            prefetch: None,
             browser_artifacts: None,
             jump_lists: None,
             mft: Some(MftCollectionOptions {
@@ -2964,6 +3136,31 @@ mod tests {
             }),
             evtx: None,
             srum: Some(SrumCollectionOptions { elevate: false }),
+            prefetch: None,
+            browser_artifacts: None,
+            jump_lists: None,
+            mft: None,
+            logfile: None,
+            indx: None,
+        };
+
+        assert!(should_share_vss_snapshot(&request));
+    }
+
+    #[test]
+    fn collection_archive_shares_vss_when_prefetch_and_registry_are_vss_backed() {
+        let request = CollectionArchiveRequest {
+            volumes: vec!["C:".to_string()],
+            output_zip: PathBuf::from(r"C:\temp\bundle.zip"),
+            staging_root: None,
+            usn: None,
+            registry: Some(RegistryCollectionOptions {
+                method: registry::RegistryCollectMethod::VssSnapshot,
+                elevate: false,
+            }),
+            evtx: None,
+            srum: None,
+            prefetch: Some(PrefetchCollectionOptions { elevate: false }),
             browser_artifacts: None,
             jump_lists: None,
             mft: None,
@@ -2987,6 +3184,7 @@ mod tests {
             }),
             evtx: None,
             srum: None,
+            prefetch: None,
             browser_artifacts: Some(BrowserArtifactsCollectionOptions { elevate: false }),
             jump_lists: None,
             mft: None,
@@ -3010,6 +3208,7 @@ mod tests {
             }),
             evtx: None,
             srum: None,
+            prefetch: None,
             browser_artifacts: None,
             jump_lists: Some(JumpListsCollectionOptions { elevate: false }),
             mft: None,
@@ -3038,6 +3237,7 @@ mod tests {
             }),
             evtx: None,
             srum: None,
+            prefetch: None,
             browser_artifacts: None,
             jump_lists: None,
             mft: None,
@@ -3068,6 +3268,9 @@ mod tests {
                 "elevate": true
             },
             "srum": {
+                "elevate": true
+            },
+            "prefetch": {
                 "elevate": true
             },
             "browser_artifacts": {
@@ -3117,6 +3320,10 @@ mod tests {
             Some(true)
         );
         assert_eq!(
+            request.prefetch.as_ref().map(|options| options.elevate),
+            Some(true)
+        );
+        assert_eq!(
             request
                 .browser_artifacts
                 .as_ref()
@@ -3145,6 +3352,25 @@ mod tests {
                 .as_ref()
                 .and_then(|options| options.max_directories),
             Some(100)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn collection_archive_request_json_round_trips_prefetch_worker_options() -> Result<()> {
+        let value = json!({
+            "volumes": ["C:"],
+            "output_zip": r"C:\temp\bundle.zip",
+            "prefetch": {
+                "elevate": true
+            }
+        });
+
+        let request: CollectionArchiveRequest = serde_json::from_value(value)?;
+
+        assert_eq!(
+            request.prefetch.as_ref().map(|options| options.elevate),
+            Some(true)
         );
         Ok(())
     }

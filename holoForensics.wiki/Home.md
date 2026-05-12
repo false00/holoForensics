@@ -6,7 +6,7 @@ It is built for investigators who need the speed of a local desktop tool, the re
 
 ## What It Delivers
 
-- **Live evidence packaging** for high-value Windows artifacts including Registry hives, Event Logs, browser artifacts, Jump Lists, `$MFT`, `$LogFile`, INDX records, SRUM, and `$UsnJrnl`.
+- **Live evidence packaging** for high-value Windows artifacts including Registry hives, Event Logs, Prefetch, browser artifacts, Jump Lists, `$MFT`, `$LogFile`, INDX records, SRUM, and `$UsnJrnl`.
 - **Offline collection parsing** for zipped evidence packages, with automatic artifact detection and native parser dispatch.
 - **Traceable output** through JSONL result files, parser logs, SHA-256 metadata, and run manifests.
 - **Desktop and CLI workflows** backed by the same Rust runtime.
@@ -83,6 +83,7 @@ cargo run -- ui
 | --- | --- | --- |
 | Registry Hives | Available | VSS snapshot hive and transaction-log collection with centralized metadata |
 | Windows Event Logs | Available | VSS snapshot copy of active and archived `.evtx` logs |
+| Prefetch | Available | VSS snapshot copy of `.pf`, `Layout.ini`, and `Ag*.db` with timestamps, file attributes, and SHA-256 metadata |
 | `$MFT` | Available | VSS raw NTFS extraction with SHA-256 metadata |
 | `$LogFile` | Available | VSS raw NTFS extraction with SHA-256 metadata |
 | INDX Records | Available | Rawpack of `$INDEX_ROOT`, `$INDEX_ALLOCATION`, and `$BITMAP` records |
@@ -197,6 +198,7 @@ Other collectors:
 
 ```powershell
 cargo run -- collect-evtx --volume C: --out-dir C:\temp\evtx --elevate
+cargo run -- collect-prefetch --volume C: --out-dir C:\temp\prefetch --elevate
 cargo run -- collect-browser-artifacts --volume C: --out-dir C:\temp\browser --elevate
 cargo run -- collect-jump-lists --volume C: --out-dir C:\temp\jump-lists --elevate
 cargo run -- collect-srum --volume C: --out-dir C:\temp\srum --elevate
