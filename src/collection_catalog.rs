@@ -43,6 +43,12 @@ pub fn enabled_collection_definitions() -> Vec<CollectionDefinition> {
             Some("src/collections/windows/prefetch.rs"),
         ),
         collection(
+            "windows_scheduled_tasks_collection",
+            "windows",
+            "Windows Scheduled Tasks",
+            Some("src/collections/windows/scheduled_tasks.rs"),
+        ),
+        collection(
             "windows_jump_lists_collection",
             "windows",
             "Windows Jump Lists",
@@ -240,6 +246,16 @@ mod tests {
         assert!(collections.iter().any(|definition| {
             definition.name == "windows_prefetch_collection"
                 && definition.implementation_path == Some("src/collections/windows/prefetch.rs")
+        }));
+    }
+
+    #[test]
+    fn enabled_collections_include_scheduled_tasks_definition() {
+        let collections = enabled_collection_definitions();
+        assert!(collections.iter().any(|definition| {
+            definition.name == "windows_scheduled_tasks_collection"
+                && definition.implementation_path
+                    == Some("src/collections/windows/scheduled_tasks.rs")
         }));
     }
 

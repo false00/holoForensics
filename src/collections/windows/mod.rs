@@ -8,6 +8,7 @@ pub mod mft;
 pub mod prefetch;
 pub mod recycle_bin;
 pub mod registry;
+pub mod scheduled_tasks;
 pub mod srum;
 pub mod usn_journal;
 pub mod vss;

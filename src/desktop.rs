@@ -495,6 +495,7 @@ struct CollectionExecutionRequest {
     collect_evtx: bool,
     collect_srum: bool,
     collect_prefetch: bool,
+    collect_scheduled_tasks: bool,
     collect_browser_artifacts: bool,
     collect_jump_lists: bool,
     collect_lnk: bool,
@@ -1348,6 +1349,11 @@ fn start_collection_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Re
                         .then_some(app::PrefetchCollectionOptions {
                             elevate: request.elevate,
                         }),
+                    scheduled_tasks: request.collect_scheduled_tasks.then_some(
+                        app::ScheduledTasksCollectionOptions {
+                            elevate: request.elevate,
+                        },
+                    ),
                     browser_artifacts: request.collect_browser_artifacts.then_some(
                         app::BrowserArtifactsCollectionOptions {
                             elevate: request.elevate,
@@ -1855,6 +1861,7 @@ fn collect_collection_request(
         collect_evtx,
         collect_srum,
         collect_prefetch,
+        collect_scheduled_tasks,
         collect_browser_artifacts,
         collect_jump_lists,
         collect_lnk,
@@ -1882,6 +1889,9 @@ fn collect_collection_request(
             selected_live_titles.iter().any(|title| title == "Prefetch"),
             selected_live_titles
                 .iter()
+                .any(|title| title == "Scheduled Tasks"),
+            selected_live_titles
+                .iter()
                 .any(|title| title == "Browser Artifacts"),
             selected_live_titles
                 .iter()
@@ -1904,6 +1914,7 @@ fn collect_collection_request(
         && !collect_evtx
         && !collect_srum
         && !collect_prefetch
+        && !collect_scheduled_tasks
         && !collect_browser_artifacts
         && !collect_jump_lists
         && !collect_lnk
@@ -1950,6 +1961,7 @@ fn collect_collection_request(
         collect_evtx,
         collect_srum,
         collect_prefetch,
+        collect_scheduled_tasks,
         collect_browser_artifacts,
         collect_jump_lists,
         collect_lnk,
@@ -2576,6 +2588,28 @@ fn expected_collection_artifacts(title: &str) -> Vec<(&'static str, &'static str
                 "Prefetch collection log",
             ),
         ],
+        "Scheduled Tasks" => vec![
+            (
+                "C/Windows/Tasks/**/*",
+                "Legacy scheduled task job files preserved from the VSS snapshot",
+            ),
+            (
+                "C/Windows/SchedLgU.txt",
+                "Legacy Task Scheduler service log when present on the volume",
+            ),
+            (
+                "C/Windows/System32/Tasks/**/*",
+                "Modern scheduled task definitions copied as raw task files from the snapshot",
+            ),
+            (
+                "$metadata/collectors/C/windows_scheduled_tasks/manifest.json",
+                "Scheduled Tasks collection manifest",
+            ),
+            (
+                "$metadata/collectors/C/windows_scheduled_tasks/collection.log",
+                "Scheduled Tasks collection log",
+            ),
+        ],
         "Browser Artifacts" => vec![
             (
                 "C/Users/*/AppData/Local/Google/Chrome/User Data/*/History*, Cookies*, Web Data*, Login Data*",
@@ -2806,6 +2840,12 @@ fn artifact_detail_for_path(path: &str) -> String {
         } else {
             "Prefetch directory artifact".to_string()
         }
+    } else if lower.contains("/windows/system32/tasks/") {
+        "Scheduled task definition".to_string()
+    } else if lower.contains("/windows/tasks/") {
+        "Legacy scheduled task artifact".to_string()
+    } else if lower.ends_with("/windows/schedlgu.txt") {
+        "Legacy Task Scheduler log".to_string()
     } else if lower.contains("/windows/system32/sru/") {
         "SRUM database or ESE companion file".to_string()
     } else if lower.ends_with("/lnk_manifest.jsonl") {
@@ -2866,6 +2906,14 @@ fn artifact_name_for_path(path: &str) -> String {
         "recycle_bin_manifest.jsonl".to_string()
     } else if lower.ends_with("/jump_lists_manifest.jsonl") {
         "jump_lists_manifest.jsonl".to_string()
+    } else if lower.ends_with("/windows/schedlgu.txt") {
+        "SchedLgU.txt".to_string()
+    } else if lower.contains("/windows/system32/tasks/") || lower.contains("/windows/tasks/") {
+        path.rsplit('/')
+            .next()
+            .filter(|name| !name.is_empty())
+            .unwrap_or(path)
+            .to_string()
     } else if lower.contains("/windows/system32/sru/") {
         path.rsplit('/')
             .next()
@@ -4396,6 +4444,9 @@ fn selected_runtime_collectors_label(request: &CollectionExecutionRequest) -> St
     if request.collect_prefetch {
         labels.push("prefetch");
     }
+    if request.collect_scheduled_tasks {
+        labels.push("scheduled-tasks");
+    }
     if request.collect_browser_artifacts {
         labels.push("browser");
     }
@@ -4545,11 +4596,11 @@ fn build_collection_catalog_records() -> Vec<CollectionCatalogRecord> {
         CollectionCatalogRecord::new(
             "Scheduled Tasks",
             "Persistence + execution",
-            "Planned",
-            "Scheduled tasks are a common persistence and execution mechanism with both file-based definitions and event-log history.",
-            "Targets: C:\\Windows\\System32\\Tasks, TaskScheduler Operational log, Security events, SchedLgU.txt",
-            "Collect this when you need task names, authors, triggers, commands, execution history, and modification time for persistence analysis.",
-            false,
+            "Available",
+            "Scheduled tasks are a common persistence and execution mechanism with both legacy job files and modern XML-backed task definitions.",
+            "Targets: C:\\Windows\\Tasks, C:\\Windows\\SchedLgU.txt, and C:\\Windows\\System32\\Tasks",
+            "Included in Create Package today. The live Rust collector uses a VSS snapshot, copies legacy and modern task roots without parsing or event-log duplication, hashes source and destination bytes with SHA-256, and records directory and file metadata in the centralized manifest.",
+            true,
         ),
         CollectionCatalogRecord::new(
             "USB and External Devices",
@@ -5108,6 +5159,23 @@ mod tests {
     }
 
     #[test]
+    fn scheduled_tasks_collection_catalog_record_is_live_and_describes_snapshot_targets() {
+        let records = build_collection_catalog_records();
+
+        let scheduled_tasks = records
+            .iter()
+            .find(|record| record.title == "Scheduled Tasks")
+            .expect("scheduled tasks record should exist");
+
+        assert!(scheduled_tasks.live);
+        assert_eq!(scheduled_tasks.status, "Available");
+        assert!(scheduled_tasks.targets.contains("System32\\Tasks"));
+        assert!(scheduled_tasks.targets.contains("SchedLgU.txt"));
+        assert!(scheduled_tasks.note.contains("without parsing"));
+        assert!(scheduled_tasks.note.contains("directory and file metadata"));
+    }
+
+    #[test]
     fn lnk_collection_catalog_record_is_live_and_describes_raw_snapshot_copy() {
         let records = build_collection_catalog_records();
 
@@ -5169,6 +5237,45 @@ mod tests {
             details
                 .iter()
                 .any(|item| item.name.contains("windows_prefetch/manifest.json"))
+        );
+    }
+
+    #[test]
+    fn scheduled_tasks_collection_activity_details_show_expected_task_artifacts() {
+        let record = super::CollectionActivityRecord {
+            title: "Scheduled Tasks".to_string(),
+            category: "Persistence + execution".to_string(),
+            detail: "Scheduled tasks collector is ready.".to_string(),
+            status: "Ready".to_string(),
+            tone: CollectionActivityTone::Ready,
+            active: false,
+            show_progress: false,
+            progress_value: 0.0,
+            progress_text: String::new(),
+            package_pending: false,
+        };
+
+        let details = build_collection_activity_details(Some(&record), None);
+
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("Windows/Tasks/**/*"))
+        );
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("SchedLgU.txt"))
+        );
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("Windows/System32/Tasks/**/*"))
+        );
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("windows_scheduled_tasks/manifest.json"))
         );
     }
 

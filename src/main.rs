@@ -5,7 +5,7 @@ use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use holo_forensics::app::{self, ParseCli, ParseRunOptions};
 use holo_forensics::collections::windows::{
     browser_artifacts, evtx, indx, jump_lists, lnk, logfile, mft, prefetch, recycle_bin, registry,
-    srum, usn_journal,
+    scheduled_tasks, srum, usn_journal,
 };
 use holo_forensics::desktop::{DesktopLaunchOptions, DesktopScreenshotState, DesktopThemeOverride};
 
@@ -90,6 +90,9 @@ enum Command {
     #[command(name = "collect-prefetch")]
     CollectPrefetch(prefetch::PrefetchCollectCli),
 
+    #[command(name = "collect-scheduled-tasks")]
+    CollectScheduledTasks(scheduled_tasks::ScheduledTasksCollectCli),
+
     #[command(name = "collect-browser-artifacts")]
     CollectBrowserArtifacts(browser_artifacts::BrowserArtifactsCollectCli),
 
@@ -142,6 +145,7 @@ fn main() {
         Some(Command::CollectIndx(args)) => indx::run(&args),
         Some(Command::CollectSrum(args)) => srum::run(&args),
         Some(Command::CollectPrefetch(args)) => prefetch::run(&args),
+        Some(Command::CollectScheduledTasks(args)) => scheduled_tasks::run(&args),
         Some(Command::CollectBrowserArtifacts(args)) => browser_artifacts::run(&args),
         Some(Command::CollectJumpLists(args)) => jump_lists::run(&args),
         Some(Command::CollectLnk(args)) => lnk::run(&args),
@@ -442,6 +446,28 @@ mod tests {
                 assert!(args.manifest.is_none());
             }
             _ => panic!("collect-prefetch was not parsed"),
+        }
+    }
+
+    #[test]
+    fn parses_collect_scheduled_tasks_subcommand() {
+        let cli = Cli::try_parse_from([
+            "holo-forensics",
+            "collect-scheduled-tasks",
+            "--volume",
+            "C:",
+            "--out-dir",
+            r"C:\temp\scheduled-tasks",
+        ])
+        .expect("collect-scheduled-tasks should parse");
+
+        match cli.command {
+            Some(Command::CollectScheduledTasks(args)) => {
+                assert_eq!(args.volume, "C:");
+                assert_eq!(args.out_dir, PathBuf::from(r"C:\temp\scheduled-tasks"));
+                assert!(args.manifest.is_none());
+            }
+            _ => panic!("collect-scheduled-tasks was not parsed"),
         }
     }
 
