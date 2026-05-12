@@ -41,7 +41,9 @@ use windows::{
             FileOpenDialog, IFileOpenDialog, IShellItem, SHCreateItemFromParsingName,
             SIGDN_FILESYSPATH,
         },
-        UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MB_TASKMODAL, MessageBoxW},
+        UI::WindowsAndMessaging::{
+            MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MB_TASKMODAL, MessageBoxW,
+        },
     },
     core::{BOOL, Error as WindowsError, HSTRING, PCWSTR, w},
 };
@@ -584,11 +586,7 @@ fn report_startup_failure(error: &anyhow::Error) {
     );
 }
 
-fn build_startup_error_dialog_body(
-    summary: &str,
-    detail: &str,
-    log_hint: Option<&str>,
-) -> String {
+fn build_startup_error_dialog_body(summary: &str, detail: &str, log_hint: Option<&str>) -> String {
     let mut body = summary.trim().to_string();
     if body.is_empty() {
         body = "The desktop UI failed during startup.".to_string();
@@ -1104,9 +1102,8 @@ fn wire_callbacks(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
                 .or_else(|| drives.first().map(|drive| drive.volume.clone()))
             {
                 {
-                    let mut state_guard = select_drive_state
-                        .lock()
-                        .expect("desktop state poisoned");
+                    let mut state_guard =
+                        select_drive_state.lock().expect("desktop state poisoned");
                     toggle_selected_collection_volume(
                         &mut state_guard.selected_collection_volumes,
                         &volume,
@@ -4525,10 +4522,9 @@ mod tests {
         CollectionActivityTone, CollectionCatalogRecord, CollectionCollectorProgress,
         CollectionDriveRecord, CollectionProgressState, CollectionRuntimePhase,
         build_collection_activity_details, build_collection_activity_snapshot,
-        build_collection_catalog_records, build_startup_error_dialog_body,
-        collection_source_state, format_error_details, guard_desktop_action,
+        build_collection_catalog_records, build_startup_error_dialog_body, collection_source_state,
+        format_error_details, guard_desktop_action, normalized_selected_volumes_or_default,
         panic_payload_message,
-        normalized_selected_volumes_or_default,
     };
 
     #[test]

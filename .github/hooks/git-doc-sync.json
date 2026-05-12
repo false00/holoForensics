@@ -6,7 +6,7 @@
         "command": "pwsh -NoLogo -NoProfile -File .github/hooks/validate-git-doc-sync.ps1",
         "windows": "pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File .github/hooks/validate-git-doc-sync.ps1",
         "cwd": ".",
-        "timeout": 15
+        "timeout": 900
       }
     ]
   }

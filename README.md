@@ -92,7 +92,7 @@ These surfaces are visible in the desktop collection catalog but do not yet have
 
 ```powershell
 cargo fmt --check
-cargo test
+cargo test --locked
 ```
 
 ### Parse A Collection

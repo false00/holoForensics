@@ -463,11 +463,7 @@ mod platform {
         let mut snapshot_id = null_guid();
         let volume_name = wide_string(&volume_root);
         unsafe {
-            requestor.AddToSnapshotSet(
-                PCWSTR(volume_name.as_ptr()),
-                null_guid(),
-                &mut snapshot_id,
-            )
+            requestor.AddToSnapshotSet(PCWSTR(volume_name.as_ptr()), null_guid(), &mut snapshot_id)
         }
         .with_context(|| format!("add volume {volume_root} to VSS snapshot set"))?;
 
@@ -541,8 +537,8 @@ mod platform {
     }
 
     fn create_requestor(context: i32) -> Result<IVssBackupComponents> {
-        let requestor = unsafe { create_vss_backup_components() }
-            .context("create VSS backup components")?;
+        let requestor =
+            unsafe { create_vss_backup_components() }.context("create VSS backup components")?;
 
         unsafe { requestor.InitializeForBackup(BSTR::default()) }
             .context("initialize VSS backup components")?;
@@ -551,14 +547,13 @@ mod platform {
         Ok(requestor)
     }
 
-    fn ensure_volume_supported(
-        requestor: &IVssBackupComponents,
-        volume_root: &str,
-    ) -> Result<()> {
+    fn ensure_volume_supported(requestor: &IVssBackupComponents, volume_root: &str) -> Result<()> {
         let mut supported = BOOL(0);
         let volume_name = wide_string(volume_root);
-        unsafe { requestor.IsVolumeSupported(null_guid(), PCWSTR(volume_name.as_ptr()), &mut supported) }
-            .with_context(|| format!("check VSS support for {volume_root}"))?;
+        unsafe {
+            requestor.IsVolumeSupported(null_guid(), PCWSTR(volume_name.as_ptr()), &mut supported)
+        }
+        .with_context(|| format!("check VSS support for {volume_root}"))?;
 
         if supported.0 == 0 {
             bail!("VSS does not support creating a shadow copy for {volume_root}");
@@ -568,14 +563,13 @@ mod platform {
     }
 
     fn do_snapshot_set(requestor: &IVssBackupComponents) -> Result<()> {
-        let async_operation = unsafe { requestor.DoSnapshotSet() }
-            .context("commit VSS snapshot set")?;
+        let async_operation =
+            unsafe { requestor.DoSnapshotSet() }.context("commit VSS snapshot set")?;
         wait_for_async(&async_operation, "commit VSS snapshot set")
     }
 
     fn wait_for_async(async_operation: &IVssAsync, action: &str) -> Result<()> {
-        unsafe { async_operation.Wait(u32::MAX) }
-            .with_context(|| format!("wait for {action}"))?;
+        unsafe { async_operation.Wait(u32::MAX) }.with_context(|| format!("wait for {action}"))?;
 
         let mut operation_result = HRESULT(0);
         let mut reserved = 0;
@@ -589,7 +583,8 @@ mod platform {
         snapshot_id: GUID,
     ) -> Result<Option<ShadowCopy>> {
         let mut properties = MaybeUninit::<VSS_SNAPSHOT_PROP>::zeroed();
-        let status = unsafe { requestor.GetSnapshotProperties(snapshot_id, properties.as_mut_ptr()) };
+        let status =
+            unsafe { requestor.GetSnapshotProperties(snapshot_id, properties.as_mut_ptr()) };
 
         if status == VSS_E_OBJECT_NOT_FOUND {
             return Ok(None);
@@ -613,7 +608,8 @@ mod platform {
 
     fn snapshot_exists(requestor: &IVssBackupComponents, snapshot_id: GUID) -> Result<bool> {
         let mut properties = MaybeUninit::<VSS_SNAPSHOT_PROP>::zeroed();
-        let status = unsafe { requestor.GetSnapshotProperties(snapshot_id, properties.as_mut_ptr()) };
+        let status =
+            unsafe { requestor.GetSnapshotProperties(snapshot_id, properties.as_mut_ptr()) };
 
         if status == VSS_E_OBJECT_NOT_FOUND {
             return Ok(false);
@@ -716,7 +712,9 @@ mod platform {
             return Err(WindowsError::from(status));
         }
 
-        unsafe { <IVssBackupComponents as Type<IVssBackupComponents, InterfaceType>>::from_abi(requestor) }
+        unsafe {
+            <IVssBackupComponents as Type<IVssBackupComponents, InterfaceType>>::from_abi(requestor)
+        }
     }
 
     fn volume_root_path(volume: &str) -> Result<String> {

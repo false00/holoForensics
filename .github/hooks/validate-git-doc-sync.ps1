@@ -86,6 +86,108 @@ function Test-GitPushCommand {
     return $CommandText -match '(^|[;&|\s])git\s+push\b'
 }
 
+function Test-PathMatch {
+    param(
+        [string]$Path,
+        [string[]]$Prefixes = @(),
+        [string[]]$Suffixes = @(),
+        [string[]]$ExactPaths = @()
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $false
+    }
+
+    foreach ($exactPath in $ExactPaths) {
+        if ($Path -eq (Normalize-Path $exactPath)) {
+            return $true
+        }
+    }
+
+    foreach ($prefix in $Prefixes) {
+        if ($Path.StartsWith((Normalize-Path $prefix))) {
+            return $true
+        }
+    }
+
+    foreach ($suffix in $Suffixes) {
+        if ($Path.EndsWith($suffix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Get-MatchingChangePaths {
+    param(
+        [object[]]$Changes,
+        [string[]]$Prefixes = @(),
+        [string[]]$Suffixes = @(),
+        [string[]]$ExactPaths = @()
+    )
+
+    return @(
+        $Changes |
+            Where-Object {
+                Test-PathMatch -Path $_.Path -Prefixes $Prefixes -Suffixes $Suffixes -ExactPaths $ExactPaths
+            } |
+            Select-Object -ExpandProperty Path -Unique
+    )
+}
+
+function Invoke-ExternalValidation {
+    param(
+        [string]$Command,
+        [string[]]$Arguments
+    )
+
+    $commandLine = $Command
+    if ($Arguments.Count -gt 0) {
+        $commandLine += ' ' + ($Arguments -join ' ')
+    }
+
+    $commandInfo = Get-Command $Command -ErrorAction SilentlyContinue
+    if (-not $commandInfo) {
+        return [PSCustomObject]@{
+            Available = $false
+            Success = $false
+            ExitCode = $null
+            CommandLine = $commandLine
+            Output = @("$Command is not available in PATH.")
+        }
+    }
+
+    $output = & $Command @Arguments 2>&1
+    $exitCode = $LASTEXITCODE
+
+    return [PSCustomObject]@{
+        Available = $true
+        Success = ($exitCode -eq 0)
+        ExitCode = $exitCode
+        CommandLine = $commandLine
+        Output = @($output | ForEach-Object { [string]$_ })
+    }
+}
+
+function Format-ValidationOutput {
+    param(
+        [string[]]$Lines,
+        [int]$MaxLines = 20
+    )
+
+    $filtered = @($Lines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($filtered.Count -eq 0) {
+        return $null
+    }
+
+    if ($filtered.Count -gt $MaxLines) {
+        $filtered = @($filtered[0..($MaxLines - 1)] + '... output truncated ...')
+    }
+
+    return $filtered -join "`n"
+}
+
 function Get-CommandOutputLines {
     param(
         [string[]]$Arguments,
@@ -245,8 +347,9 @@ try {
 
     $changes = @()
     $changes += Get-PendingChanges
+    $isGitPush = Test-GitPushCommand -CommandText $commandText
 
-    if (Test-GitPushCommand -CommandText $commandText) {
+    if ($isGitPush) {
         $changes += Get-AheadChanges
     }
 
@@ -299,6 +402,58 @@ try {
     }
 
     if ($missing.Count -eq 0) {
+        $formatRelevantPaths = Get-MatchingChangePaths -Changes $changes -Suffixes @('.rs') -ExactPaths @('build.rs')
+        if ($formatRelevantPaths.Count -gt 0) {
+            $formatCheck = Invoke-ExternalValidation -Command 'cargo' -Arguments @('fmt', '--check')
+            if (-not $formatCheck.Success) {
+                $reason = if ($formatCheck.Available) {
+                    'Local validation before ' + ($(if ($isGitPush) { 'git push' } else { 'git commit' })) + ' failed: cargo fmt --check. Run cargo fmt and retry.'
+                } else {
+                    'Local validation before ' + ($(if ($isGitPush) { 'git push' } else { 'git commit' })) + ' requires Cargo, but cargo was not found in PATH.'
+                }
+
+                $details = @(
+                    'Relevant Rust changes: ' + ($formatRelevantPaths -join ', '),
+                    'Validation command: ' + $formatCheck.CommandLine
+                )
+
+                $formattedOutput = Format-ValidationOutput -Lines $formatCheck.Output
+                if ($formattedOutput) {
+                    $details += 'Command output:'
+                    $details += $formattedOutput
+                }
+
+                Write-Output (New-HookResponse -Decision 'deny' -Reason $reason -AdditionalContext ($details -join "`n"))
+                exit 0
+            }
+        }
+
+        $testRelevantPaths = Get-MatchingChangePaths -Changes $changes -Prefixes @('src/', 'tests/', 'examples/', 'benches/', 'ui/') -Suffixes @('.rs', '.slint') -ExactPaths @('Cargo.toml', 'Cargo.lock', 'build.rs')
+        if ($isGitPush -and $testRelevantPaths.Count -gt 0) {
+            $testCheck = Invoke-ExternalValidation -Command 'cargo' -Arguments @('test', '--locked')
+            if (-not $testCheck.Success) {
+                $reason = if ($testCheck.Available) {
+                    'Local validation before git push failed: cargo test --locked. Fix the failing build or test issue and retry.'
+                } else {
+                    'Local validation before git push requires Cargo, but cargo was not found in PATH.'
+                }
+
+                $details = @(
+                    'Relevant code or UI changes: ' + ($testRelevantPaths -join ', '),
+                    'Validation command: ' + $testCheck.CommandLine
+                )
+
+                $formattedOutput = Format-ValidationOutput -Lines $testCheck.Output
+                if ($formattedOutput) {
+                    $details += 'Command output:'
+                    $details += $formattedOutput
+                }
+
+                Write-Output (New-HookResponse -Decision 'deny' -Reason $reason -AdditionalContext ($details -join "`n"))
+                exit 0
+            }
+        }
+
         Write-Output (New-HookResponse)
         exit 0
     }

@@ -150,7 +150,7 @@ Run validation:
 
 ```powershell
 cargo fmt --check
-cargo test
+cargo test --locked
 ```
 
 ## Architecture
