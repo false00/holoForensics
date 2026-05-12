@@ -8,23 +8,40 @@ Consistent Windows forensic collection and offline artifact parsing in one Rust 
 
 ![Holo Forensics desktop collection setup](assets/screenshots/holo-forensics-collection-ready.png)
 
-Holo Forensics exists because too much free forensic acquisition tooling is stitched together from mixed languages, PowerShell scripts, batch wrappers, and external utilities. That can work, but it makes collection behavior harder to audit, harder to reproduce, and harder to trust across machines.
+Holo Forensics is a Windows-first forensic workbench for two jobs investigators perform repeatedly: collecting live evidence into a stable package, and parsing supported evidence into reviewable JSONL.
 
-This project takes a narrower path: one open-source Rust implementation for Windows collection packaging and offline parsing. The goal is to create consistent, forensically sound collections with stable paths, hashes, manifests, and parser outputs that are easy to review, automate, and hand off.
+Most people should start with the desktop app. The UI walks through source selection, evidence-scope review, package destination, collection progress, parse planning, and settings without hiding the runtime artifacts written underneath.
 
-This repository packages the Holo Forensics engine: a Rust CLI that can create Windows collection archives, extract existing collection archives, detect supported artifacts, run native Rust parsers, and write JSONL results plus a manifest.
+The same Rust runtime also powers the CLI for labs, automation, and validation, but the main workflow is designed around the desktop experience.
 
-The same backend is also exposed through a Slint desktop UI in the main `holo-forensics` binary.
+## Start With The Desktop App
 
-It is designed for explicit Windows acquisition and offline, full-collection parsing. It is not a continuous live monitoring agent.
+Download the latest Windows release from the [latest release page](https://github.com/false00/holoForensics/releases/latest).
 
-## Desktop UI Preview
+If you are evaluating Holo Forensics or using it for casework, start with the packaged desktop build instead of building from source.
+
+Then follow the normal operator flow:
+
+1. Choose the source volume you want to collect from.
+2. Review or customize the evidence scope before packaging.
+3. Pick the destination folder and create the evidence package.
+4. Use Parse Mode in the UI when you want to inspect and parse an existing evidence zip.
+
+If you want source-build, CLI, or lab-validation details, use the [wiki home technical reference](holoForensics.wiki/Home.md#technical-reference).
 
 The desktop UI gives analysts a focused Windows collection workflow with source selection, scope review, package destination, live collector status, and artifact-level progress.
+
+![Holo Forensics evidence scope review](assets/screenshots/holo-forensics-scope-review.png)
+
+The scope dialog makes it clear which evidence groups are live today, which are planned, and where tuneable collection options exist before you start acquisition.
+
+## Desktop UI Preview
 
 ![Holo Forensics desktop collection progress](assets/screenshots/holo-forensics-collection-progress.png)
 
 The collection view is built for Windows acquisition: choose a source volume, confirm the scope, set the package destination, and watch each collector move from queued to staged or complete.
+
+The app also includes Parse Mode for existing evidence archives, settings for theme and search defaults, and recovery prompts for shadow copies that were created by earlier collection runs.
 
 ## Why This Exists
 
@@ -41,79 +58,54 @@ Holo Forensics has two separate jobs: **Create Package** collects Windows artifa
 
 ### Collects Today
 
-| Surface | What is collected |
-| --- | --- |
-| ✅ Windows Event Logs | `C:\Windows\System32\winevt\Logs\*.evtx`, including archived EVTX logs |
-| ✅ Registry Hives | System hives, user hives, service-profile hives, AmCache, BCD, and registry transaction logs |
-| ✅ Browser Artifacts | Chrome, Edge, Firefox, legacy Edge/WebCache, DPAPI support material, and supporting hives |
-| ✅ SRUM | `C:\Windows\System32\sru\*` plus SOFTWARE and SYSTEM hives |
-| ✅ `$MFT` | NTFS `$MFT` through VSS raw-NTFS extraction |
-| ✅ `$LogFile` | NTFS `$LogFile` through VSS raw-NTFS extraction |
-| ✅ INDX Records | Raw NTFS `$I30` index attributes from directory records |
-| ✅ `$UsnJrnl` | `$Extend\$UsnJrnl:$J` with sidecar or centralized collector metadata |
+| Status | Surface | What is collected |
+| :---: | --- | --- |
+| ✅ | Windows Event Logs | `C:\Windows\System32\winevt\Logs\*.evtx`, including archived EVTX logs |
+| ✅ | Registry Hives | System hives, user hives, service-profile hives, AmCache, BCD, and registry transaction logs |
+| ✅ | Browser Artifacts | Chrome, Edge, Firefox, legacy Edge/WebCache, DPAPI support material, and supporting hives |
+| ✅ | SRUM | `C:\Windows\System32\sru\*` plus SOFTWARE and SYSTEM hives |
+| ✅ | `$MFT` | NTFS `$MFT` through VSS raw-NTFS extraction |
+| ✅ | `$LogFile` | NTFS `$LogFile` through VSS raw-NTFS extraction |
+| ✅ | INDX Records | Raw NTFS `$I30` index attributes from directory records |
+| ✅ | `$UsnJrnl` | `$Extend\$UsnJrnl:$J` with sidecar or centralized collector metadata |
 
 Create Package preserves original Windows paths where applicable, hashes collected bytes with SHA-256, and writes collector metadata under `$metadata/collectors/<volume>/<collector>/`.
 
 ### Parses Today
 
-| Parser family | Artifact support |
-| --- | --- |
-| ✅ `windows_browser_history` | Chrome, Edge, and Firefox local browser history databases |
-| ✅ `windows_usn_journal` | Raw NTFS `$Extend\$UsnJrnl:$J` streams, including sidecar-aware sparse-range parsing for USN record versions 2 and 3 |
-| ✅ `windows_registry` | Offline Windows Registry hives including `NTUSER.DAT`, `UsrClass.dat`, `Amcache.hve`, `SYSTEM`, `SOFTWARE`, `SAM`, `SECURITY`, `DEFAULT`, `COMPONENTS`, `settings.dat`, and `drvindex.dat` |
-| ✅ `windows_restore_point_log` | Windows restore-point `rp.log` |
-| ✅ `windows_recycle_bin_info2` | Windows XP recycle-bin `INFO2` |
-| ✅ `windows_timeline` | Windows Timeline `ActivitiesCache.db` |
+| Status | Parser family | Artifact support |
+| :---: | --- | --- |
+| ✅ | `windows_browser_history` | Chrome, Edge, and Firefox local browser history databases |
+| ✅ | `windows_usn_journal` | Raw NTFS `$Extend\$UsnJrnl:$J` streams, including sidecar-aware sparse-range parsing for USN record versions 2 and 3 |
+| ✅ | `windows_registry` | Offline Windows Registry hives including `NTUSER.DAT`, `UsrClass.dat`, `Amcache.hve`, `SYSTEM`, `SOFTWARE`, `SAM`, `SECURITY`, `DEFAULT`, `COMPONENTS`, `settings.dat`, and `drvindex.dat` |
+| ✅ | `windows_restore_point_log` | Windows restore-point `rp.log` |
+| ✅ | `windows_recycle_bin_info2` | Windows XP recycle-bin `INFO2` |
+| ✅ | `windows_timeline` | Windows Timeline `ActivitiesCache.db` |
 
 ### Planned UI Surfaces
 
 These surfaces are visible in the desktop collection catalog but do not yet have live collectors:
 
-| Surface | Primary targets |
-| --- | --- |
-| 🕓 Prefetch | `C:\Windows\Prefetch\*.pf` |
-| 🕓 LNK Files | Recent shortcuts and related shell activity |
-| 🕓 Jump Lists | AutomaticDestinations and CustomDestinations |
-| 🕓 Recycle Bin | `C:\$Recycle.Bin`, `INFO2`, `$I`, and `$R` artifacts |
-| 🕓 RDP and Lateral Movement | TerminalServices logs, Security logons, RDP cache, and Terminal Server Client keys |
-| 🕓 Scheduled Tasks | Task files, TaskScheduler Operational log, Security events, and `SchedLgU.txt` |
-| 🕓 USB and External Devices | USBSTOR, MountedDevices, portable devices, DriverFrameworks, Shellbags, LNK, and Jump Lists |
-| 🕓 Volume Shadow Copies | Shadow copies, restore points, older hives, logs, files, and malware |
-| 🕓 Memory, Hibernation, and Crash Dumps | RAM image, `hiberfil.sys`, `pagefile.sys`, `swapfile.sys`, crash dumps, minidumps, and WER |
-| 🕓 Startup Folders | User and ProgramData Startup folders |
+| Status | Surface | Primary targets |
+| :---: | --- | --- |
+| 🕓 | Prefetch | `C:\Windows\Prefetch\*.pf` |
+| 🕓 | LNK Files | Recent shortcuts and related shell activity |
+| 🕓 | Jump Lists | AutomaticDestinations and CustomDestinations |
+| 🕓 | Recycle Bin | `C:\$Recycle.Bin`, `INFO2`, `$I`, and `$R` artifacts |
+| 🕓 | RDP and Lateral Movement | TerminalServices logs, Security logons, RDP cache, and Terminal Server Client keys |
+| 🕓 | Scheduled Tasks | Task files, TaskScheduler Operational log, Security events, and `SchedLgU.txt` |
+| 🕓 | USB and External Devices | USBSTOR, MountedDevices, portable devices, DriverFrameworks, Shellbags, LNK, and Jump Lists |
+| 🕓 | Volume Shadow Copies | Shadow copies, restore points, older hives, logs, files, and malware |
+| 🕓 | Memory, Hibernation, and Crash Dumps | RAM image, `hiberfil.sys`, `pagefile.sys`, `swapfile.sys`, crash dumps, minidumps, and WER |
+| 🕓 | Startup Folders | User and ProgramData Startup folders |
 
-## Quick Start
+## Getting Started
 
 ### Prerequisites
 
 - Rust stable with Cargo
 
-### Validate The Repo
-
-```powershell
-cargo fmt --check
-cargo test --locked
-```
-
-### Parse A Collection
-
-```powershell
-cargo run -- --input C:\path\to\collection.zip
-```
-
-### Launch The Desktop UI
-
-Run this from the repo root:
-
-```powershell
-cargo run
-```
-
-Or launch the UI explicitly:
-
-```powershell
-cargo run -- ui
-```
+### What The Desktop App Supports
 
 The desktop UI supports:
 
@@ -124,86 +116,7 @@ The desktop UI supports:
 - Failure handling section: collection and parse failures surface through desktop error dialogs, and startup failures before Slint is ready fall back to a native Windows error dialog with the technical log path.
 - Runtime safety section: VSS shadow copies created by Holo Forensics are tracked under `~/.holo-forensics/vss-shadow-copies.json`. If the app starts and those tracked snapshots still exist, the desktop UI prompts to keep them for reuse or delete them before continuing.
 
-For a non-interactive parse validation run:
-
-```powershell
-cargo run -- ui --validate-parse C:\path\to\collection.zip --validate-output output\ui-parse-validation
-```
-
-## Collection Commands
-
-Most collection commands require an elevated shell or `--elevate`. The desktop UI uses the same collectors when it creates a package.
-
-### Registry
-
-```powershell
-cargo run -- collect-registry --volume C: --out-dir C:\temp\registry --elevate
-```
-
-The registry collector uses VSS when available, preserves original Windows hive paths, captures system hives, user and service-profile hives, Amcache, BCD, and adjacent transaction logs, and writes centralized collector metadata.
-
-### USN Journal
-
-```powershell
-cargo run -- collect-usn-journal --volume C: --out C:\temp\C_usn_journal_J.bin --elevate
-```
-
-The default USN mode is VSS raw-NTFS and writes the active journal window with metadata that preserves original stream offsets. Sparse logical output is available when needed:
-
-```powershell
-cargo run -- collect-usn-journal --volume C: --out C:\temp\C_usn_journal_J.bin --mode vss-raw-ntfs --sparse --elevate
-```
-
-### Other Collectors
-
-```powershell
-cargo run -- collect-evtx --volume C: --out-dir C:\temp\evtx --elevate
-cargo run -- collect-browser-artifacts --volume C: --out-dir C:\temp\browser --elevate
-cargo run -- collect-srum --volume C: --out-dir C:\temp\srum --elevate
-cargo run -- collect-mft --volume C: --out-dir C:\temp\mft --elevate
-cargo run -- collect-logfile --volume C: --out-dir C:\temp\logfile --elevate
-cargo run -- collect-indx --volume C: --out-dir C:\temp\indx --elevate
-```
-
-### Production Build
-
-Build the Windows release binary from a Windows shell with the Rust stable toolchain and MSVC build tools available:
-
-```powershell
-cargo build --release --locked
-```
-
-Run it with the search destination environment:
-
-```powershell
-$env:ELASTIC_SEARCH_HOST = "127.0.0.1"
-$env:ELASTIC_SEARCH_PORT = "9200"
-$env:ELASTIC_SEARCH_USERNAME = "<elastic-username>"
-$env:ELASTIC_SEARCH_PASSWORD = "<elastic-password>"
-
-.\target\release\holo-forensics.exe `
-  --input C:\data\collections\input.zip `
-  --output C:\data\holo-output\run
-```
-
-The development and release binaries accept the same CLI flags.
-
-Useful flags:
-
-- `--input` -> required collection zip path
-- `--output` -> output directory; defaults to `output/<zip-stem>`
-- `--opensearch-url` -> OpenSearch-compatible base URL for bulk export
-- `--opensearch-username` / `--opensearch-password` -> optional basic auth credentials
-- `--opensearch-index` -> optional explicit destination index name
-
-The CLI also understands:
-
-- `ELASTIC_SEARCH_HOST`
-- `ELASTIC_SEARCH_PORT`
-- `ELASTIC_SEARCH_USERNAME`
-- `ELASTIC_SEARCH_PASSWORD`
-
-If export is enabled and no index name is provided, the CLI generates an `l2t-<mode>-<collection>-<timestamp>` index name.
+If you want advanced CLI workflows, release-build steps, or collector command details, use the [wiki home technical reference](holoForensics.wiki/Home.md#technical-reference).
 
 ## Output Layout
 
@@ -232,26 +145,14 @@ output/<collection-name>/
 
 ## Documentation
 
-- [Parser wiki](holoForensics.wiki/Home.md)
+- [User and operator guide, including CLI reference](holoForensics.wiki/Home.md)
+- [Parser wiki](holoForensics.wiki/parsers/README.md)
+- [Collection wiki](holoForensics.wiki/collections/README.md)
 
 ## License
 
 - Project source: [Apache License 2.0](LICENSE)
 - Bundled third-party fonts: [Third-party notices](THIRD_PARTY_NOTICES.md)
-
-## Security And Repo Hygiene
-
-- Generated output, caches, local binaries, and intake collections are intentionally excluded from version control.
-- Do not use this repo as a storage location for case data, external collections, or parser output.
-- Keep sensitive examples outside the repo and document only the minimum needed findings.
-
-## Local Search Validation
-
-To stand up a single-node search target for local development, use [docker-compose.search.yml](docker-compose.search.yml).
-
-```powershell
-docker compose -f docker-compose.search.yml up -d
-```
 
 ## Limitations
 

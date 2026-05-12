@@ -53,6 +53,28 @@ The desktop application focuses on the work investigators repeat most:
 
 The desktop is not a thin wrapper around shell scripts. It calls the same runtime paths used by the CLI, including shared VSS snapshot handling, tracked shadow-copy recovery, archive packaging, parser planning, and manifest generation.
 
+## Desktop-First Quick Start
+
+Most operators should use the desktop workflow first:
+
+1. Start the app from the repo root.
+2. Choose the source volume.
+3. Review the evidence scope.
+4. Choose the package destination and create the archive.
+5. Use Parse Mode in the UI to inspect and parse an existing evidence zip.
+
+Launch the desktop app:
+
+```powershell
+cargo run
+```
+
+Launch the UI explicitly if you need the named subcommand:
+
+```powershell
+cargo run -- ui
+```
+
 ## Runtime Capabilities
 
 ### Live Windows Collectors
@@ -125,33 +147,115 @@ Collection archives use path-preserving artifact layouts with centralized collec
           manifest.json
 ```
 
-## Quick Start
+## Technical Reference
 
-Run the desktop application:
+The README is intentionally desktop-first. This page keeps the lower-level commands, validation steps, and CLI examples in one place for operators, testers, and maintainers.
 
-```powershell
-cargo run
-```
-
-Parse an existing evidence archive from the CLI:
-
-```powershell
-cargo run -- --input C:\evidence\case-001.zip --output C:\cases\case-001\holo-output
-```
-
-Collect a live Windows evidence package from the desktop, or call individual collectors directly:
-
-```powershell
-cargo run -- collect-registry --volume C: --out-dir C:\cases\case-001\registry --elevate
-cargo run -- collect-usn-journal --volume C: --out C:\cases\case-001\C_usn_journal_J.bin --elevate
-```
-
-Run validation:
+### Repo Validation
 
 ```powershell
 cargo fmt --check
 cargo test --locked
 ```
+
+### Parse An Existing Archive From The CLI
+
+```powershell
+cargo run -- --input C:\evidence\case-001.zip --output C:\cases\case-001\holo-output
+```
+
+For a non-interactive parse validation run:
+
+```powershell
+cargo run -- ui --validate-parse C:\path\to\collection.zip --validate-output output\ui-parse-validation
+```
+
+### Live Collector Commands
+
+Most collection commands require an elevated shell or `--elevate`. The desktop UI uses the same collectors when it creates a package.
+
+Registry:
+
+```powershell
+cargo run -- collect-registry --volume C: --out-dir C:\temp\registry --elevate
+```
+
+USN Journal:
+
+```powershell
+cargo run -- collect-usn-journal --volume C: --out C:\temp\C_usn_journal_J.bin --elevate
+```
+
+The default USN mode is VSS raw-NTFS and writes the active journal window with metadata that preserves original stream offsets. Sparse logical output is available when needed:
+
+```powershell
+cargo run -- collect-usn-journal --volume C: --out C:\temp\C_usn_journal_J.bin --mode vss-raw-ntfs --sparse --elevate
+```
+
+Other collectors:
+
+```powershell
+cargo run -- collect-evtx --volume C: --out-dir C:\temp\evtx --elevate
+cargo run -- collect-browser-artifacts --volume C: --out-dir C:\temp\browser --elevate
+cargo run -- collect-srum --volume C: --out-dir C:\temp\srum --elevate
+cargo run -- collect-mft --volume C: --out-dir C:\temp\mft --elevate
+cargo run -- collect-logfile --volume C: --out-dir C:\temp\logfile --elevate
+cargo run -- collect-indx --volume C: --out-dir C:\temp\indx --elevate
+```
+
+### Production Build
+
+Build the Windows release binary from a Windows shell with the Rust stable toolchain and MSVC build tools available:
+
+```powershell
+cargo build --release --locked
+```
+
+Run it with the search destination environment:
+
+```powershell
+$env:ELASTIC_SEARCH_HOST = "127.0.0.1"
+$env:ELASTIC_SEARCH_PORT = "9200"
+$env:ELASTIC_SEARCH_USERNAME = "<elastic-username>"
+$env:ELASTIC_SEARCH_PASSWORD = "<elastic-password>"
+
+.\target\release\holo-forensics.exe `
+  --input C:\data\collections\input.zip `
+  --output C:\data\holo-output\run
+```
+
+The development and release binaries accept the same CLI flags.
+
+Useful flags:
+
+- `--input` -> required collection zip path
+- `--output` -> output directory; defaults to `output/<zip-stem>`
+- `--opensearch-url` -> OpenSearch-compatible base URL for bulk export
+- `--opensearch-username` / `--opensearch-password` -> optional basic auth credentials
+- `--opensearch-index` -> optional explicit destination index name
+
+The CLI also understands:
+
+- `ELASTIC_SEARCH_HOST`
+- `ELASTIC_SEARCH_PORT`
+- `ELASTIC_SEARCH_USERNAME`
+- `ELASTIC_SEARCH_PASSWORD`
+
+If export is enabled and no index name is provided, the CLI generates an `l2t-<mode>-<collection>-<timestamp>` index name.
+
+### Local Search Validation
+
+To stand up a single-node search target for local development, use `docker-compose.search.yml`:
+
+```powershell
+docker compose -f docker-compose.search.yml up -d
+```
+
+### Security And Repo Hygiene
+
+- Generated output, caches, local binaries, and intake collections are intentionally excluded from version control.
+- Do not use this repo as a storage location for case data, external collections, or parser output.
+- Keep sensitive examples outside the repo and document only the minimum needed findings.
 
 ## Architecture
 

@@ -11,10 +11,18 @@ This file is the canonical assistant-facing instruction surface for this reposit
 ## Documentation Contract
 
 - Treat documentation as part of the shipped runtime surface. Parser and collector changes are incomplete until the affected documentation is updated in the same change whenever possible.
+- Keep the root `README.md` strictly user-facing. Do not add agent-only, maintainer-only, validation-only, or other non-user-facing workflow details there.
+- When non-user-facing context, contributor commands, validation steps, or technical reference material needs documentation, update `holoForensics.wiki/Home.md` instead of expanding the root `README.md`.
 - When a parser changes, update the matching page under `holoForensics.wiki/parsers/` and any affected parser index pages.
 - When a collector or collection contract changes, update the matching page under `holoForensics.wiki/collections/` and any affected collection index pages.
 - When a new parser, collector, or collection contract is added, create the corresponding wiki page if it does not exist and add it to the appropriate index.
 - Update `README.md` whenever parser coverage, collection coverage, workflow, architecture, commands, output contracts, or documentation indexes change.
+
+## Validation
+
+- When changing Slint files, desktop UI layout, theming, or other user-visible UI behavior, validate the rendered result with `capture-ui-screenshots.ps1` before concluding the task.
+- Prefer the narrowest screenshot state that covers the change, such as `about`, `settings`, `main`, `scope`, `usn-settings`, or `collection-progress`.
+- Mention the captured screenshot path in the final response when UI validation was part of the work.
 
 ## Commit And Push
 

@@ -68,12 +68,14 @@ export component AboutDialog inherits Rectangle {
 
                         HelperText {
                             width: 86px;
+                            height: parent.height;
                             text: "Version";
                             vertical-alignment: center;
                         }
 
                         Text {
                             horizontal-stretch: 1;
+                            height: parent.height;
                             text: root.version;
                             color: ThemeTokens.text;
                             font-family: "Figtree";
@@ -89,6 +91,7 @@ export component AboutDialog inherits Rectangle {
 
                         HelperText {
                             width: 86px;
+                            height: parent.height;
                             text: "Developer";
                             vertical-alignment: center;
                         }
@@ -98,7 +101,7 @@ export component AboutDialog inherits Rectangle {
                             height: parent.height;
                             border-radius: ThemeTokens.radius-small;
                             border-width: 1px;
-                            border-color: repo-link.has-hover ? ThemeTokens.primary.with-alpha(0.42) : transparent;
+                            border-color: repo-link.has-hover ? (ThemeTokens.dark ? ThemeTokens.primary-hover : ThemeTokens.primary).with-alpha(0.42) : transparent;
                             background: repo-link.has-hover ? ThemeTokens.accent-soft : transparent;
                             animate background { duration: 100ms; }
                             animate border-color { duration: 100ms; }
@@ -106,14 +109,14 @@ export component AboutDialog inherits Rectangle {
                             HorizontalLayout {
                                 width: parent.width;
                                 height: parent.height;
-                                padding-left: 10px;
                                 padding-right: 10px;
                                 spacing: 12px;
 
                                 Text {
                                     horizontal-stretch: 1;
+                                    height: parent.height;
                                     text: "false00";
-                                    color: repo-link.has-hover ? ThemeTokens.primary-hover : ThemeTokens.primary;
+                                    color: repo-link.has-hover ? ThemeTokens.text : ThemeTokens.dark ? ThemeTokens.primary-hover : ThemeTokens.primary;
                                     font-family: "Figtree";
                                     font-size: 13px;
                                     font-weight: 600;
@@ -122,7 +125,9 @@ export component AboutDialog inherits Rectangle {
 
                                 HelperText {
                                     width: 72px;
+                                    height: parent.height;
                                     text: "GitHub repo";
+                                    color: repo-link.has-hover ? ThemeTokens.text : ThemeTokens.muted;
                                     vertical-alignment: center;
                                     horizontal-alignment: right;
                                 }
