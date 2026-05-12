@@ -16,6 +16,7 @@ pub const WINDOWS_SRUM_COLLECTOR: &str = "windows_srum";
 pub const WINDOWS_PREFETCH_COLLECTOR: &str = "windows_prefetch";
 pub const WINDOWS_BROWSER_ARTIFACTS_COLLECTOR: &str = "windows_browser_artifacts";
 pub const WINDOWS_JUMP_LISTS_COLLECTOR: &str = "windows_jump_lists";
+pub const WINDOWS_LNK_COLLECTOR: &str = "windows_lnk";
 
 pub fn collector_metadata_archive_dir(volume: &str, collector: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(METADATA_ROOT)
@@ -61,9 +62,9 @@ mod tests {
 
     use super::{
         WINDOWS_BROWSER_ARTIFACTS_COLLECTOR, WINDOWS_EVTX_COLLECTOR, WINDOWS_INDX_COLLECTOR,
-        WINDOWS_JUMP_LISTS_COLLECTOR, WINDOWS_LOGFILE_COLLECTOR, WINDOWS_MFT_COLLECTOR,
-        WINDOWS_PREFETCH_COLLECTOR, WINDOWS_REGISTRY_COLLECTOR, WINDOWS_SRUM_COLLECTOR,
-        collector_log_archive_path, collector_manifest_archive_path,
+        WINDOWS_JUMP_LISTS_COLLECTOR, WINDOWS_LNK_COLLECTOR, WINDOWS_LOGFILE_COLLECTOR,
+        WINDOWS_MFT_COLLECTOR, WINDOWS_PREFETCH_COLLECTOR, WINDOWS_REGISTRY_COLLECTOR,
+        WINDOWS_SRUM_COLLECTOR, collector_log_archive_path, collector_manifest_archive_path,
     };
 
     #[test]
@@ -146,6 +147,14 @@ mod tests {
                 .join("collectors")
                 .join("C")
                 .join("windows_jump_lists")
+                .join("manifest.json")
+        );
+        assert_eq!(
+            collector_manifest_archive_path("c:", WINDOWS_LNK_COLLECTOR)?,
+            PathBuf::from("$metadata")
+                .join("collectors")
+                .join("C")
+                .join("windows_lnk")
                 .join("manifest.json")
         );
         Ok(())

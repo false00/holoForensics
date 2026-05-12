@@ -49,6 +49,12 @@ pub fn enabled_collection_definitions() -> Vec<CollectionDefinition> {
             Some("src/collections/windows/jump_lists.rs"),
         ),
         collection(
+            "windows_lnk_collection",
+            "windows",
+            "Windows LNK Files",
+            Some("src/collections/windows/lnk.rs"),
+        ),
+        collection(
             "windows_evtx_collection",
             "windows",
             "Windows Event Logs",
@@ -243,6 +249,15 @@ mod tests {
         assert!(collections.iter().any(|definition| {
             definition.name == "windows_jump_lists_collection"
                 && definition.implementation_path == Some("src/collections/windows/jump_lists.rs")
+        }));
+    }
+
+    #[test]
+    fn enabled_collections_include_lnk_definition() {
+        let collections = enabled_collection_definitions();
+        assert!(collections.iter().any(|definition| {
+            definition.name == "windows_lnk_collection"
+                && definition.implementation_path == Some("src/collections/windows/lnk.rs")
         }));
     }
 }

@@ -14,7 +14,7 @@ Native Rust live collector for Windows Registry hives. The primary runtime uses 
 - Normalizes the selected NTFS source volume.
 - Attempts to enable `SeBackupPrivilege` and `SeRestorePrivilege`.
 - Creates a temporary native Windows VSS snapshot for the requested NTFS volume in standalone collector mode.
-- Reuses the archive workflow's shared VSS snapshot when Registry is collected with USN, EVTX, MFT, `$LogFile`, INDX, SRUM, Browser Artifacts, and/or Jump Lists for the same volume, so the collectors read the same point-in-time volume state.
+- Reuses the archive workflow's shared VSS snapshot when Registry is collected with USN, EVTX, MFT, `$LogFile`, INDX, SRUM, Browser Artifacts, Jump Lists, or LNK Files for the same volume, so the collectors read the same point-in-time volume state.
 - Copies system hives, user hives, service-profile hives, `Amcache.hve`, `BCD`, and adjacent transaction logs from the snapshot device path.
 - Preserves the original Windows path inside the collected output tree and desktop package zip.
 - Hashes every collected file with SHA-256.

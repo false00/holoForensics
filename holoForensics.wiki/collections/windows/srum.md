@@ -26,7 +26,7 @@ holo-forensics collect-srum --volume C: --out-dir C:\temp\srum --elevate
 - Normalizes the selected volume.
 - Attempts to enable `SeBackupPrivilege`, `SeRestorePrivilege`, and `SeSecurityPrivilege`.
 - Creates a native Windows VSS snapshot through the shared Rust VSS helper; no PowerShell or `vssadmin` path is used.
-- In archive collection, reuses the shared VSS snapshot when SRUM is collected with Registry, EVTX, `$MFT`, `$LogFile`, INDX, USN, Browser Artifacts, and/or Jump Lists for the same volume.
+- In archive collection, reuses the shared VSS snapshot when SRUM is collected with Registry, EVTX, `$MFT`, `$LogFile`, INDX, USN, Browser Artifacts, Jump Lists, or LNK Files for the same volume.
 - Copies every file directly under `C:\Windows\System32\sru\` when present.
 - Copies supporting hives:
   - `C:\Windows\System32\config\SOFTWARE`

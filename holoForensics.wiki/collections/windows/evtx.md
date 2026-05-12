@@ -14,7 +14,7 @@ Native Rust live collector for Windows Event Log files. The first implementation
 
 - Normalizes the selected NTFS source volume.
 - Uses a native Windows VSS snapshot as the source.
-- Reuses the archive workflow's shared VSS snapshot when EVTX is collected with Registry, USN, MFT, `$LogFile`, INDX, SRUM, Browser Artifacts, and/or Jump Lists for the same volume.
+- Reuses the archive workflow's shared VSS snapshot when EVTX is collected with Registry, USN, MFT, `$LogFile`, INDX, SRUM, Browser Artifacts, Jump Lists, or LNK Files for the same volume.
 - Enumerates `*.evtx` under `Windows\System32\winevt\Logs` in the snapshot, including `Archive-*.evtx`.
 - Copies the physical `.evtx` files without parsing or rewriting them.
 - Preserves original Windows archive paths under `C/Windows/System32/winevt/Logs/`.

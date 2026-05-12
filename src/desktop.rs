@@ -63,6 +63,7 @@ const TRIAGE_COLLECTION_TITLES: &[&str] = &[
     "$LogFile",
     "INDX Records",
     "SRUM",
+    "LNK Files",
     "Jump Lists",
     "Prefetch",
     "$UsnJrnl",
@@ -495,6 +496,7 @@ struct CollectionExecutionRequest {
     collect_prefetch: bool,
     collect_browser_artifacts: bool,
     collect_jump_lists: bool,
+    collect_lnk: bool,
     collect_mft: bool,
     collect_logfile: bool,
     collect_indx: bool,
@@ -1354,6 +1356,9 @@ fn start_collection_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Re
                             elevate: request.elevate,
                         },
                     ),
+                    lnk: request.collect_lnk.then_some(app::LnkCollectionOptions {
+                        elevate: request.elevate,
+                    }),
                     mft: request.collect_mft.then_some(app::MftCollectionOptions {
                         mode: mft::MftAcquisitionMode::Vss,
                         elevate: request.elevate,
@@ -1845,6 +1850,7 @@ fn collect_collection_request(
         collect_prefetch,
         collect_browser_artifacts,
         collect_jump_lists,
+        collect_lnk,
         collect_mft,
         collect_logfile,
         collect_indx,
@@ -1872,6 +1878,9 @@ fn collect_collection_request(
             selected_live_titles
                 .iter()
                 .any(|title| title == "Jump Lists"),
+            selected_live_titles
+                .iter()
+                .any(|title| title == "LNK Files"),
             selected_live_titles.iter().any(|title| title == "$MFT"),
             selected_live_titles.iter().any(|title| title == "$LogFile"),
             selected_live_titles
@@ -1886,6 +1895,7 @@ fn collect_collection_request(
         && !collect_prefetch
         && !collect_browser_artifacts
         && !collect_jump_lists
+        && !collect_lnk
         && !collect_mft
         && !collect_logfile
         && !collect_indx
@@ -1930,6 +1940,7 @@ fn collect_collection_request(
         collect_prefetch,
         collect_browser_artifacts,
         collect_jump_lists,
+        collect_lnk,
         collect_mft,
         collect_logfile,
         collect_indx,
@@ -2358,6 +2369,7 @@ fn build_collection_activity_details(
             | "Prefetch"
             | "Browser Artifacts"
             | "Jump Lists"
+            | "LNK Files"
             | "$MFT"
             | "$LogFile"
             | "INDX Records"
@@ -2641,6 +2653,40 @@ fn expected_collection_artifacts(title: &str) -> Vec<(&'static str, &'static str
                 "Jump Lists collection log",
             ),
         ],
+        "LNK Files" => vec![
+            (
+                "C/Users/*/AppData/Roaming/Microsoft/Windows/Recent/*.lnk",
+                "Per-user Recent shortcuts preserved from the VSS snapshot",
+            ),
+            (
+                "C/Users/*/AppData/Roaming/Microsoft/Office/Recent/*.lnk",
+                "Per-user Office Recent shortcuts copied as raw LNK evidence",
+            ),
+            (
+                "C/Users/*/Desktop/*.lnk",
+                "Per-user desktop shortcuts preserved without resolving shortcut targets",
+            ),
+            (
+                "C/Users/*/AppData/Roaming/Microsoft/Windows/Start Menu/**/*.lnk",
+                "Per-user Start Menu shortcuts collected recursively while skipping reparse points",
+            ),
+            (
+                "C/ProgramData/Microsoft/Windows/Start Menu/**/*.lnk",
+                "Common Start Menu shortcuts preserved from the snapshot",
+            ),
+            (
+                "C/lnk_manifest.jsonl",
+                "JSONL artifact manifest with source path, VSS path, location, timestamps, attributes, and SHA-256",
+            ),
+            (
+                "$metadata/collectors/C/windows_lnk/manifest.json",
+                "LNK collection manifest",
+            ),
+            (
+                "$metadata/collectors/C/windows_lnk/collection.log",
+                "LNK collection log",
+            ),
+        ],
         "$MFT" => vec![
             ("C/$MFT.bin", "Raw Master File Table bytes"),
             ("C/$MFT.bin.sha256", "SHA-256 hash for the collected $MFT"),
@@ -2741,6 +2787,10 @@ fn artifact_detail_for_path(path: &str) -> String {
         }
     } else if lower.contains("/windows/system32/sru/") {
         "SRUM database or ESE companion file".to_string()
+    } else if lower.ends_with("/lnk_manifest.jsonl") {
+        "LNK JSONL artifact manifest".to_string()
+    } else if lower.ends_with(".lnk") {
+        "Windows shortcut (LNK) file".to_string()
     } else if lower.ends_with("/jump_lists_manifest.jsonl") {
         "Jump Lists JSONL artifact manifest".to_string()
     } else if lower.ends_with(".automaticdestinations-ms")
@@ -2785,6 +2835,8 @@ fn artifact_name_for_path(path: &str) -> String {
         "INDX.rawpack".to_string()
     } else if lower.ends_with("indx.rawpack.sha256") {
         "INDX.rawpack.sha256".to_string()
+    } else if lower.ends_with("/lnk_manifest.jsonl") {
+        "lnk_manifest.jsonl".to_string()
     } else if lower.ends_with("/jump_lists_manifest.jsonl") {
         "jump_lists_manifest.jsonl".to_string()
     } else if lower.contains("/windows/system32/sru/") {
@@ -4323,6 +4375,9 @@ fn selected_runtime_collectors_label(request: &CollectionExecutionRequest) -> St
     if request.collect_jump_lists {
         labels.push("jump-lists");
     }
+    if request.collect_lnk {
+        labels.push("lnk");
+    }
     if request.collect_mft {
         labels.push("mft");
     }
@@ -4415,11 +4470,11 @@ fn build_collection_catalog_records() -> Vec<CollectionCatalogRecord> {
         CollectionCatalogRecord::new(
             "LNK Files",
             "User file access",
-            "Planned",
+            "Available",
             "Windows shortcuts are excellent user-interaction artifacts for files, folders, programs, removable media, and network paths.",
-            "Targets: %APPDATA%\\Microsoft\\Windows\\Recent\\*.lnk",
-            "LNK metadata often survives deletion of the target and exposes paths, volume IDs, timestamps, and removable or network context.",
-            false,
+            "Targets: per-user Recent, Office Recent, Desktop, user Start Menu, and ProgramData Start Menu .lnk files via VSS snapshot",
+            "Included in Create Package today. The live Rust collector uses a VSS snapshot, copies raw .lnk files without resolving their targets, preserves logical Windows paths, hashes each file with SHA-256, and records a JSONL artifact manifest plus centralized collector metadata.",
+            true,
         ),
         CollectionCatalogRecord::new(
             "Jump Lists",
@@ -5023,6 +5078,23 @@ mod tests {
     }
 
     #[test]
+    fn lnk_collection_catalog_record_is_live_and_describes_raw_snapshot_copy() {
+        let records = build_collection_catalog_records();
+
+        let lnk = records
+            .iter()
+            .find(|record| record.title == "LNK Files")
+            .expect("lnk record should exist");
+
+        assert!(lnk.live);
+        assert_eq!(lnk.status, "Available");
+        assert!(lnk.targets.contains("Office Recent"));
+        assert!(lnk.targets.contains("Start Menu"));
+        assert!(lnk.note.contains("without resolving their targets"));
+        assert!(lnk.note.contains("JSONL artifact manifest"));
+    }
+
+    #[test]
     fn prefetch_collection_activity_details_show_expected_prefetch_artifacts() {
         let record = super::CollectionActivityRecord {
             title: "Prefetch".to_string(),
@@ -5046,6 +5118,45 @@ mod tests {
             details
                 .iter()
                 .any(|item| item.name.contains("windows_prefetch/manifest.json"))
+        );
+    }
+
+    #[test]
+    fn lnk_collection_activity_details_show_expected_lnk_artifacts() {
+        let record = super::CollectionActivityRecord {
+            title: "LNK Files".to_string(),
+            category: "User file access".to_string(),
+            detail: "LNK collector is ready.".to_string(),
+            status: "Ready".to_string(),
+            tone: CollectionActivityTone::Ready,
+            active: false,
+            show_progress: false,
+            progress_value: 0.0,
+            progress_text: String::new(),
+            package_pending: false,
+        };
+
+        let details = build_collection_activity_details(Some(&record), None);
+
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("Recent/*.lnk"))
+        );
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("Desktop/*.lnk"))
+        );
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("lnk_manifest.jsonl"))
+        );
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("windows_lnk/manifest.json"))
         );
     }
 

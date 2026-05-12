@@ -26,7 +26,7 @@ holo-forensics collect-jump-lists --volume C: --out-dir C:\temp\jump-lists --ele
 - Normalizes the selected volume.
 - Attempts to enable `SeBackupPrivilege`, `SeRestorePrivilege`, and `SeSecurityPrivilege`.
 - Creates a native Windows VSS snapshot through the shared Rust VSS helper; no PowerShell or `vssadmin` path is used.
-- In archive collection, reuses the shared VSS snapshot when Jump Lists are collected with Registry, EVTX, SRUM, Browser Artifacts, `$MFT`, `$LogFile`, INDX, and/or USN for the same volume.
+- In archive collection, reuses the shared VSS snapshot when Jump Lists are collected with Registry, EVTX, SRUM, Browser Artifacts, LNK Files, `$MFT`, `$LogFile`, INDX, or USN for the same volume.
 - Enumerates `C:\Users\*` from the snapshot.
 - Skips low-value profiles such as `Default`, `Default User`, `Public`, and `All Users`.
 - Skips reparse and symlink paths to avoid recursion loops or collecting redirected content unexpectedly.

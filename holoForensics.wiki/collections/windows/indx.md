@@ -34,7 +34,7 @@ holo-forensics collect-indx --volume C: --out-dir C:\temp\indx --max-directories
 - Normalizes the selected volume.
 - Attempts to enable `SeBackupPrivilege`, `SeManageVolumePrivilege`, and `SeRestorePrivilege`.
 - In VSS mode, creates a native Windows VSS snapshot through the shared Rust VSS helper; no PowerShell or `vssadmin` path is used.
-- In archive collection, reuses the shared VSS snapshot when INDX is collected with `$MFT`, `$LogFile`, SRUM, Registry, USN, EVTX, Browser Artifacts, and/or Jump Lists for the same volume.
+- In archive collection, reuses the shared VSS snapshot when INDX is collected with `$MFT`, `$LogFile`, SRUM, Registry, USN, EVTX, Browser Artifacts, Jump Lists, or LNK Files for the same volume.
 - Opens the VSS snapshot device or live volume as a raw NTFS device.
 - Reads and validates the NTFS boot sector.
 - Parses NTFS with the existing `ntfs` crate.

@@ -26,7 +26,7 @@ holo-forensics collect-prefetch --volume C: --out-dir C:\temp\prefetch --elevate
 - Normalizes the selected volume.
 - Attempts to enable `SeBackupPrivilege`, `SeRestorePrivilege`, and `SeSecurityPrivilege`.
 - Creates a native Windows VSS snapshot through the shared Rust VSS helper; no PowerShell or `vssadmin` path is used.
-- In archive collection, reuses the shared VSS snapshot when Prefetch is collected with Registry, EVTX, SRUM, Browser Artifacts, Jump Lists, `$MFT`, `$LogFile`, INDX, and/or USN for the same volume.
+- In archive collection, reuses the shared VSS snapshot when Prefetch is collected with Registry, EVTX, SRUM, Browser Artifacts, Jump Lists, LNK Files, `$MFT`, `$LogFile`, INDX, or USN for the same volume.
 - Enumerates `C:\Windows\Prefetch` from the snapshot.
 - Copies only targeted evidence files from the snapshot root:
   - `C:\Windows\Prefetch\*.pf`

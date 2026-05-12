@@ -2,6 +2,7 @@ pub mod browser_artifacts;
 pub mod evtx;
 pub mod indx;
 pub mod jump_lists;
+pub mod lnk;
 pub mod logfile;
 pub mod mft;
 pub mod prefetch;

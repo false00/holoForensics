@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::collection;
 use crate::collection_metadata;
 use crate::collections::windows::{
-    browser_artifacts, evtx, indx, jump_lists, logfile, mft, prefetch, registry, srum, usn_journal,
-    vss,
+    browser_artifacts, evtx, indx, jump_lists, lnk, logfile, mft, prefetch, registry, srum,
+    usn_journal, vss,
 };
 use crate::manifest::{Manifest, ManifestEntry, write_manifest};
 use crate::opensearch::{
@@ -119,6 +119,14 @@ pub struct JumpListsCollectionArchiveRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct LnkCollectionArchiveRequest {
+    pub volumes: Vec<String>,
+    pub output_zip: PathBuf,
+    pub staging_root: Option<PathBuf>,
+    pub elevate: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct MftCollectionArchiveRequest {
     pub volumes: Vec<String>,
     pub output_zip: PathBuf,
@@ -187,6 +195,11 @@ pub struct JumpListsCollectionOptions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LnkCollectionOptions {
+    pub elevate: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MftCollectionOptions {
     pub mode: mft::MftAcquisitionMode,
     pub elevate: bool,
@@ -225,6 +238,8 @@ pub struct CollectionArchiveRequest {
     pub browser_artifacts: Option<BrowserArtifactsCollectionOptions>,
     #[serde(default)]
     pub jump_lists: Option<JumpListsCollectionOptions>,
+    #[serde(default)]
+    pub lnk: Option<LnkCollectionOptions>,
     #[serde(default)]
     pub mft: Option<MftCollectionOptions>,
     #[serde(default)]
@@ -471,6 +486,7 @@ fn collect_collection_archive_direct(
         && request.prefetch.is_none()
         && request.browser_artifacts.is_none()
         && request.jump_lists.is_none()
+        && request.lnk.is_none()
         && request.mft.is_none()
         && request.logfile.is_none()
         && request.indx.is_none()
@@ -584,6 +600,17 @@ fn collect_collection_archive_direct(
                         normalized_volume,
                         &staging_dir,
                         jump_lists_options,
+                        Some(&shadow_copy),
+                        reporter,
+                        &mut archive_entries,
+                        &mut staged_paths,
+                    )?;
+                }
+                if let Some(lnk_options) = request.lnk.as_ref() {
+                    stage_lnk_collection(
+                        normalized_volume,
+                        &staging_dir,
+                        lnk_options,
                         Some(&shadow_copy),
                         reporter,
                         &mut archive_entries,
@@ -737,6 +764,17 @@ fn collect_collection_archive_direct(
                 &mut staged_paths,
             )?;
         }
+        if let Some(lnk_options) = request.lnk.as_ref() {
+            stage_lnk_collection(
+                normalized_volume,
+                &staging_dir,
+                lnk_options,
+                None,
+                reporter,
+                &mut archive_entries,
+                &mut staged_paths,
+            )?;
+        }
         if let Some(mft_options) = request.mft.as_ref() {
             stage_mft_collection(
                 normalized_volume,
@@ -842,6 +880,7 @@ pub fn collect_usn_archive(
         prefetch: None,
         browser_artifacts: None,
         jump_lists: None,
+        lnk: None,
         mft: None,
         logfile: None,
         indx: None,
@@ -865,6 +904,7 @@ pub fn collect_registry_archive(
         prefetch: None,
         browser_artifacts: None,
         jump_lists: None,
+        lnk: None,
         mft: None,
         logfile: None,
         indx: None,
@@ -887,6 +927,7 @@ pub fn collect_evtx_archive(
         prefetch: None,
         browser_artifacts: None,
         jump_lists: None,
+        lnk: None,
         mft: None,
         logfile: None,
         indx: None,
@@ -907,6 +948,7 @@ pub fn collect_mft_archive(
         prefetch: None,
         browser_artifacts: None,
         jump_lists: None,
+        lnk: None,
         mft: Some(MftCollectionOptions {
             mode: request.mode,
             elevate: request.elevate,
@@ -930,6 +972,7 @@ pub fn collect_logfile_archive(
         prefetch: None,
         browser_artifacts: None,
         jump_lists: None,
+        lnk: None,
         mft: None,
         logfile: Some(LogFileCollectionOptions {
             mode: request.mode,
@@ -953,6 +996,7 @@ pub fn collect_indx_archive(
         prefetch: None,
         browser_artifacts: None,
         jump_lists: None,
+        lnk: None,
         mft: None,
         logfile: None,
         indx: Some(IndxCollectionOptions {
@@ -980,6 +1024,7 @@ pub fn collect_srum_archive(
         prefetch: None,
         browser_artifacts: None,
         jump_lists: None,
+        lnk: None,
         mft: None,
         logfile: None,
         indx: None,
@@ -1002,6 +1047,7 @@ pub fn collect_prefetch_archive(
         }),
         browser_artifacts: None,
         jump_lists: None,
+        lnk: None,
         mft: None,
         logfile: None,
         indx: None,
@@ -1024,6 +1070,7 @@ pub fn collect_browser_artifacts_archive(
             elevate: request.elevate,
         }),
         jump_lists: None,
+        lnk: None,
         mft: None,
         logfile: None,
         indx: None,
@@ -1044,6 +1091,30 @@ pub fn collect_jump_lists_archive(
         prefetch: None,
         browser_artifacts: None,
         jump_lists: Some(JumpListsCollectionOptions {
+            elevate: request.elevate,
+        }),
+        lnk: None,
+        mft: None,
+        logfile: None,
+        indx: None,
+    })
+}
+
+pub fn collect_lnk_archive(
+    request: &LnkCollectionArchiveRequest,
+) -> Result<CollectionArchiveSummary> {
+    collect_collection_archive(&CollectionArchiveRequest {
+        volumes: request.volumes.clone(),
+        output_zip: request.output_zip.clone(),
+        staging_root: request.staging_root.clone(),
+        usn: None,
+        registry: None,
+        evtx: None,
+        srum: None,
+        prefetch: None,
+        browser_artifacts: None,
+        jump_lists: None,
+        lnk: Some(LnkCollectionOptions {
             elevate: request.elevate,
         }),
         mft: None,
@@ -1515,6 +1586,11 @@ fn collection_archive_requests_elevation(request: &CollectionArchiveRequest) -> 
             .map(|options| options.elevate)
             .unwrap_or(false)
         || request
+            .lnk
+            .as_ref()
+            .map(|options| options.elevate)
+            .unwrap_or(false)
+        || request
             .mft
             .as_ref()
             .map(|options| options.elevate)
@@ -1552,6 +1628,7 @@ fn should_share_vss_snapshot(request: &CollectionArchiveRequest) -> bool {
     let prefetch_uses_vss = request.prefetch.is_some();
     let browser_artifacts_uses_vss = request.browser_artifacts.is_some();
     let jump_lists_uses_vss = request.jump_lists.is_some();
+    let lnk_uses_vss = request.lnk.is_some();
     let mft_uses_vss = request
         .mft
         .as_ref()
@@ -1575,6 +1652,7 @@ fn should_share_vss_snapshot(request: &CollectionArchiveRequest) -> bool {
         prefetch_uses_vss,
         browser_artifacts_uses_vss,
         jump_lists_uses_vss,
+        lnk_uses_vss,
         mft_uses_vss,
         logfile_uses_vss,
         indx_uses_vss,
@@ -2072,6 +2150,72 @@ fn stage_jump_lists_collection(
     Ok(())
 }
 
+fn stage_lnk_collection(
+    normalized_volume: &str,
+    staging_dir: &Path,
+    options: &LnkCollectionOptions,
+    shared_shadow_copy: Option<&vss::ShadowCopy>,
+    reporter: &mut dyn FnMut(CollectionEvent),
+    archive_entries: &mut Vec<collection::ArchiveEntry>,
+    staged_paths: &mut Vec<PathBuf>,
+) -> Result<()> {
+    reporter(CollectionEvent::CollectorStarted {
+        collection_title: "LNK Files".to_string(),
+        volume: normalized_volume.to_string(),
+        progress_value: 0.02,
+        detail: format!("Preparing LNK collection on {normalized_volume}."),
+        progress_text: "Starting".to_string(),
+    });
+    let mut progress_reporter = |progress: lnk::LnkProgress| {
+        reporter(CollectionEvent::CollectorProgress {
+            collection_title: "LNK Files".to_string(),
+            volume: normalized_volume.to_string(),
+            progress_value: progress.progress_value,
+            detail: progress.detail,
+            progress_text: progress.progress_text,
+        });
+    };
+    let request = lnk::LnkCollectRequest {
+        volume: normalized_volume.to_string(),
+        out_dir: staging_dir.to_path_buf(),
+        manifest: Some(lnk::default_manifest_path(staging_dir, normalized_volume)?),
+        artifact_manifest: Some(lnk::default_artifact_manifest_path(
+            staging_dir,
+            normalized_volume,
+        )?),
+        collection_log: Some(lnk::default_collection_log_path(
+            staging_dir,
+            normalized_volume,
+        )?),
+        diagnostic_log: None,
+        elevate: options.elevate,
+    };
+    let summary = if let Some(shadow_copy) = shared_shadow_copy {
+        lnk::collect_with_progress_using_shadow_copy(&request, shadow_copy, &mut progress_reporter)?
+    } else {
+        lnk::collect_with_progress(&request, &mut progress_reporter)?
+    };
+
+    add_staged_paths_as_archive_entries(staging_dir, &summary.staged_paths, archive_entries)?;
+    let staged_count = summary.staged_paths.len();
+    let artifact_paths = lnk_collection_artifact_paths(&summary);
+    staged_paths.extend(summary.staged_paths);
+    reporter(CollectionEvent::CollectorFinished {
+        collection_title: "LNK Files".to_string(),
+        volume: normalized_volume.to_string(),
+        progress_value: 1.0,
+        detail: format!("Collected and staged LNK files from {normalized_volume}."),
+        progress_text: format!(
+            "{} copied, {} failed",
+            summary.file_records.len(),
+            summary.failures.len()
+        ),
+        staged_paths: staged_count,
+        artifact_paths,
+    });
+    Ok(())
+}
+
 fn stage_mft_collection(
     normalized_volume: &str,
     staging_dir: &Path,
@@ -2462,6 +2606,30 @@ fn jump_lists_collection_artifact_paths(
     paths
 }
 
+fn lnk_collection_artifact_paths(summary: &lnk::LnkCollectSummary) -> Vec<String> {
+    let mut paths = summary
+        .file_records
+        .iter()
+        .map(|record| record.archive_path.clone())
+        .collect::<Vec<_>>();
+    if let Ok(relative_jsonl) = summary
+        .artifact_manifest_path
+        .strip_prefix(&summary.output_root)
+    {
+        paths.push(normalize_archive_path_string(relative_jsonl));
+    }
+    if let Ok(relative_manifest) = summary.manifest_path.strip_prefix(&summary.output_root) {
+        paths.push(normalize_archive_path_string(relative_manifest));
+    }
+    if let Ok(relative_log) = summary
+        .collection_log_path
+        .strip_prefix(&summary.output_root)
+    {
+        paths.push(normalize_archive_path_string(relative_log));
+    }
+    paths
+}
+
 fn add_staged_paths_as_archive_entries(
     staging_dir: &Path,
     paths: &[PathBuf],
@@ -2688,6 +2856,7 @@ fn selected_runtime_collector_count(request: &CollectionArchiveRequest) -> usize
         + usize::from(request.prefetch.is_some())
         + usize::from(request.browser_artifacts.is_some())
         + usize::from(request.jump_lists.is_some())
+        + usize::from(request.lnk.is_some())
         + usize::from(request.mft.is_some())
         + usize::from(request.logfile.is_some())
         + usize::from(request.indx.is_some())
@@ -2850,10 +3019,11 @@ mod tests {
 
     use super::{
         BrowserArtifactsCollectionOptions, CollectionArchiveRequest, EvtxCollectionOptions,
-        IndxCollectionOptions, JumpListsCollectionOptions, LogFileCollectionOptions,
-        MftCollectionOptions, PrefetchCollectionOptions, RegistryCollectionOptions,
-        SrumCollectionOptions, UsnCollectionOptions, add_staged_paths_as_archive_entries,
-        collection_archive_requests_elevation, should_share_vss_snapshot, usn_archive_raw_path,
+        IndxCollectionOptions, JumpListsCollectionOptions, LnkCollectionOptions,
+        LogFileCollectionOptions, MftCollectionOptions, PrefetchCollectionOptions,
+        RegistryCollectionOptions, SrumCollectionOptions, UsnCollectionOptions,
+        add_staged_paths_as_archive_entries, collection_archive_requests_elevation,
+        should_share_vss_snapshot, usn_archive_raw_path,
     };
     use crate::collection;
     use crate::collection_metadata;
@@ -2953,6 +3123,7 @@ mod tests {
             prefetch: None,
             browser_artifacts: None,
             jump_lists: None,
+            lnk: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -2982,6 +3153,7 @@ mod tests {
             prefetch: None,
             browser_artifacts: None,
             jump_lists: None,
+            lnk: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -3011,6 +3183,7 @@ mod tests {
             prefetch: None,
             browser_artifacts: None,
             jump_lists: None,
+            lnk: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -3035,6 +3208,7 @@ mod tests {
             prefetch: None,
             browser_artifacts: None,
             jump_lists: None,
+            lnk: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -3056,6 +3230,7 @@ mod tests {
             prefetch: None,
             browser_artifacts: None,
             jump_lists: None,
+            lnk: None,
             mft: Some(MftCollectionOptions {
                 mode: mft::MftAcquisitionMode::Vss,
                 elevate: false,
@@ -3080,6 +3255,7 @@ mod tests {
             prefetch: None,
             browser_artifacts: None,
             jump_lists: None,
+            lnk: None,
             mft: Some(MftCollectionOptions {
                 mode: mft::MftAcquisitionMode::Vss,
                 elevate: false,
@@ -3107,6 +3283,7 @@ mod tests {
             prefetch: None,
             browser_artifacts: None,
             jump_lists: None,
+            lnk: None,
             mft: Some(MftCollectionOptions {
                 mode: mft::MftAcquisitionMode::Vss,
                 elevate: false,
@@ -3139,6 +3316,7 @@ mod tests {
             prefetch: None,
             browser_artifacts: None,
             jump_lists: None,
+            lnk: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -3163,6 +3341,7 @@ mod tests {
             prefetch: Some(PrefetchCollectionOptions { elevate: false }),
             browser_artifacts: None,
             jump_lists: None,
+            lnk: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -3187,6 +3366,7 @@ mod tests {
             prefetch: None,
             browser_artifacts: Some(BrowserArtifactsCollectionOptions { elevate: false }),
             jump_lists: None,
+            lnk: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -3211,6 +3391,32 @@ mod tests {
             prefetch: None,
             browser_artifacts: None,
             jump_lists: Some(JumpListsCollectionOptions { elevate: false }),
+            lnk: None,
+            mft: None,
+            logfile: None,
+            indx: None,
+        };
+
+        assert!(should_share_vss_snapshot(&request));
+    }
+
+    #[test]
+    fn collection_archive_shares_vss_when_lnk_and_registry_are_vss_backed() {
+        let request = CollectionArchiveRequest {
+            volumes: vec!["C:".to_string()],
+            output_zip: PathBuf::from(r"C:\temp\bundle.zip"),
+            staging_root: None,
+            usn: None,
+            registry: Some(RegistryCollectionOptions {
+                method: registry::RegistryCollectMethod::VssSnapshot,
+                elevate: false,
+            }),
+            evtx: None,
+            srum: None,
+            prefetch: None,
+            browser_artifacts: None,
+            jump_lists: None,
+            lnk: Some(LnkCollectionOptions { elevate: false }),
             mft: None,
             logfile: None,
             indx: None,
@@ -3240,6 +3446,7 @@ mod tests {
             prefetch: None,
             browser_artifacts: None,
             jump_lists: None,
+            lnk: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -3277,6 +3484,9 @@ mod tests {
                 "elevate": true
             },
             "jump_lists": {
+                "elevate": true
+            },
+            "lnk": {
                 "elevate": true
             },
             "mft": {
@@ -3335,6 +3545,10 @@ mod tests {
             Some(true)
         );
         assert_eq!(
+            request.lnk.as_ref().map(|options| options.elevate),
+            Some(true)
+        );
+        assert_eq!(
             request.mft.as_ref().map(|options| options.mode),
             Some(mft::MftAcquisitionMode::Vss)
         );
@@ -3370,6 +3584,25 @@ mod tests {
 
         assert_eq!(
             request.prefetch.as_ref().map(|options| options.elevate),
+            Some(true)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn collection_archive_request_json_round_trips_lnk_worker_options() -> Result<()> {
+        let value = json!({
+            "volumes": ["C:"],
+            "output_zip": r"C:\temp\bundle.zip",
+            "lnk": {
+                "elevate": true
+            }
+        });
+
+        let request: CollectionArchiveRequest = serde_json::from_value(value)?;
+
+        assert_eq!(
+            request.lnk.as_ref().map(|options| options.elevate),
             Some(true)
         );
         Ok(())

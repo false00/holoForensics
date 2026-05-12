@@ -4,7 +4,8 @@ use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 
 use holo_forensics::app::{self, ParseCli, ParseRunOptions};
 use holo_forensics::collections::windows::{
-    browser_artifacts, evtx, indx, jump_lists, logfile, mft, prefetch, registry, srum, usn_journal,
+    browser_artifacts, evtx, indx, jump_lists, lnk, logfile, mft, prefetch, registry, srum,
+    usn_journal,
 };
 use holo_forensics::desktop::{DesktopLaunchOptions, DesktopScreenshotState, DesktopThemeOverride};
 
@@ -95,6 +96,9 @@ enum Command {
     #[command(name = "collect-jump-lists")]
     CollectJumpLists(jump_lists::JumpListsCollectCli),
 
+    #[command(name = "collect-lnk")]
+    CollectLnk(lnk::LnkCollectCli),
+
     #[command(name = "collect-collection-archive-worker", hide = true)]
     CollectCollectionArchiveWorker(app::CollectionArchiveWorkerCli),
 
@@ -137,6 +141,7 @@ fn main() {
         Some(Command::CollectPrefetch(args)) => prefetch::run(&args),
         Some(Command::CollectBrowserArtifacts(args)) => browser_artifacts::run(&args),
         Some(Command::CollectJumpLists(args)) => jump_lists::run(&args),
+        Some(Command::CollectLnk(args)) => lnk::run(&args),
         Some(Command::CollectCollectionArchiveWorker(args)) => {
             app::run_collection_archive_worker(&args)
         }
@@ -476,6 +481,28 @@ mod tests {
                 assert!(args.artifact_manifest.is_none());
             }
             _ => panic!("collect-jump-lists was not parsed"),
+        }
+    }
+
+    #[test]
+    fn parses_collect_lnk_subcommand() {
+        let cli = Cli::try_parse_from([
+            "holo-forensics",
+            "collect-lnk",
+            "--volume",
+            "C:",
+            "--out-dir",
+            r"C:\temp\lnk",
+        ])
+        .expect("collect-lnk should parse");
+
+        match cli.command {
+            Some(Command::CollectLnk(args)) => {
+                assert_eq!(args.volume, "C:");
+                assert_eq!(args.out_dir, PathBuf::from(r"C:\temp\lnk"));
+                assert!(args.artifact_manifest.is_none());
+            }
+            _ => panic!("collect-lnk was not parsed"),
         }
     }
 
