@@ -6,6 +6,7 @@ pub mod lnk;
 pub mod logfile;
 pub mod mft;
 pub mod prefetch;
+pub mod recycle_bin;
 pub mod registry;
 pub mod srum;
 pub mod usn_journal;

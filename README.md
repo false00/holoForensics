@@ -78,13 +78,14 @@ Holo Forensics has two separate jobs: **Create Package** collects Windows artifa
 | ✅ | Browser Artifacts | Chrome, Edge, Firefox, legacy Edge/WebCache, DPAPI support material, and supporting hives |
 | ✅ | Jump Lists | Per-user AutomaticDestinations and CustomDestinations plus `jump_lists_manifest.jsonl` |
 | ✅ | LNK Files | Recent, Office Recent, Desktop, and Start Menu `.lnk` files from a VSS snapshot, preserved raw with `lnk_manifest.jsonl` and no shortcut-target resolution |
+| ✅ | Recycle Bin | Raw VSS snapshot copy of `C:\$Recycle.Bin` and legacy `C:\Recycler`, including root-level files, SID folders, `$I`, `$R`, `INFO2`, and `recycle_bin_manifest.jsonl` |
 | ✅ | SRUM | `C:\Windows\System32\sru\*` plus SOFTWARE and SYSTEM hives |
 | ✅ | `$MFT` | NTFS `$MFT` through VSS raw-NTFS extraction |
 | ✅ | `$LogFile` | NTFS `$LogFile` through VSS raw-NTFS extraction |
 | ✅ | INDX Records | Raw NTFS `$I30` index attributes from directory records |
 | ✅ | `$UsnJrnl` | `$Extend\$UsnJrnl:$J` with sidecar or centralized collector metadata |
 
-Create Package preserves original Windows paths where applicable, hashes collected bytes with SHA-256, and writes collector metadata under `$metadata/collectors/<volume>/<collector>/`.
+Create Package preserves original Windows paths where applicable, hashes collected bytes with SHA-256, and writes collector metadata under `$metadata/collectors/<volume>/<collector>/`. Recycle Bin collection preserves the raw modern and legacy on-disk structure; Parse Mode still only parses XP `INFO2` when that artifact is present.
 
 ### Parses Today
 
@@ -103,7 +104,6 @@ These surfaces are visible in the desktop collection catalog but do not yet have
 
 | Status | Surface | Primary targets |
 | :---: | --- | --- |
-| 🕓 | Recycle Bin | `C:\$Recycle.Bin`, `INFO2`, `$I`, and `$R` artifacts |
 | 🕓 | RDP and Lateral Movement | TerminalServices logs, Security logons, RDP cache, and Terminal Server Client keys |
 | 🕓 | Scheduled Tasks | Task files, TaskScheduler Operational log, Security events, and `SchedLgU.txt` |
 | 🕓 | USB and External Devices | USBSTOR, MountedDevices, portable devices, DriverFrameworks, Shellbags, LNK, and Jump Lists |
@@ -121,7 +121,7 @@ These surfaces are visible in the desktop collection catalog but do not yet have
 
 The desktop UI supports:
 
-- Collection section: `Full`, `Triage`, and `Custom` profiles are exposed in the UI. The Collection tab presents the Windows collection surfaces listed above, with available live collectors for event logs, registry, Prefetch, browser artifacts, Jump Lists, LNK Files, SRUM, `$MFT`, `$LogFile`, INDX records, and `$UsnJrnl`.
+- Collection section: `Full`, `Triage`, and `Custom` profiles are exposed in the UI. The Collection tab presents the Windows collection surfaces listed above, with available live collectors for event logs, registry, Prefetch, browser artifacts, Jump Lists, LNK Files, Recycle Bin, SRUM, `$MFT`, `$LogFile`, INDX records, and `$UsnJrnl`.
 - Collection workflow section: when multiple VSS-backed collectors run for the same volume, the package workflow reuses one shared point-in-time VSS snapshot so related artifacts stay aligned.
 - Parse Mode section: inspect a selected zip, detect supported artifact groups, choose which detected groups to run, and write parser results without blocking the UI.
 - Settings section: persist theme and Elasticsearch destination defaults. The password remains session-local.
@@ -150,7 +150,7 @@ output/<collection-name>/
 
 - `src/` -> active Rust CLI and runtime
 - `src/collection_catalog.rs` -> built-in collection catalog and parser-to-collection validation
-- `src/collections/windows/` -> live Windows collector implementations for browser artifacts, EVTX, Jump Lists, LNK Files, Prefetch, registry, `$MFT`, `$LogFile`, INDX records, SRUM, and `$UsnJrnl`
+- `src/collections/windows/` -> live Windows collector implementations for browser artifacts, EVTX, Jump Lists, LNK Files, Prefetch, Recycle Bin, registry, `$MFT`, `$LogFile`, INDX records, SRUM, and `$UsnJrnl`
 - `src/parsers/windows/` -> native Windows parser implementations for browser history, USN journal, registry, restore-point logs, XP recycle-bin `INFO2`, and Windows Timeline
 - `src/parser_catalog.rs` -> built-in parser family catalog
 - `holoForensics.wiki/` -> parser and collection documentation

@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::collection;
 use crate::collection_metadata;
 use crate::collections::windows::{
-    browser_artifacts, evtx, indx, jump_lists, lnk, logfile, mft, prefetch, registry, srum,
-    usn_journal, vss,
+    browser_artifacts, evtx, indx, jump_lists, lnk, logfile, mft, prefetch, recycle_bin, registry,
+    srum, usn_journal, vss,
 };
 use crate::manifest::{Manifest, ManifestEntry, write_manifest};
 use crate::opensearch::{
@@ -127,6 +127,14 @@ pub struct LnkCollectionArchiveRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct RecycleBinCollectionArchiveRequest {
+    pub volumes: Vec<String>,
+    pub output_zip: PathBuf,
+    pub staging_root: Option<PathBuf>,
+    pub elevate: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct MftCollectionArchiveRequest {
     pub volumes: Vec<String>,
     pub output_zip: PathBuf,
@@ -200,6 +208,11 @@ pub struct LnkCollectionOptions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecycleBinCollectionOptions {
+    pub elevate: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MftCollectionOptions {
     pub mode: mft::MftAcquisitionMode,
     pub elevate: bool,
@@ -240,6 +253,8 @@ pub struct CollectionArchiveRequest {
     pub jump_lists: Option<JumpListsCollectionOptions>,
     #[serde(default)]
     pub lnk: Option<LnkCollectionOptions>,
+    #[serde(default)]
+    pub recycle_bin: Option<RecycleBinCollectionOptions>,
     #[serde(default)]
     pub mft: Option<MftCollectionOptions>,
     #[serde(default)]
@@ -487,6 +502,7 @@ fn collect_collection_archive_direct(
         && request.browser_artifacts.is_none()
         && request.jump_lists.is_none()
         && request.lnk.is_none()
+        && request.recycle_bin.is_none()
         && request.mft.is_none()
         && request.logfile.is_none()
         && request.indx.is_none()
@@ -611,6 +627,17 @@ fn collect_collection_archive_direct(
                         normalized_volume,
                         &staging_dir,
                         lnk_options,
+                        Some(&shadow_copy),
+                        reporter,
+                        &mut archive_entries,
+                        &mut staged_paths,
+                    )?;
+                }
+                if let Some(recycle_bin_options) = request.recycle_bin.as_ref() {
+                    stage_recycle_bin_collection(
+                        normalized_volume,
+                        &staging_dir,
+                        recycle_bin_options,
                         Some(&shadow_copy),
                         reporter,
                         &mut archive_entries,
@@ -775,6 +802,17 @@ fn collect_collection_archive_direct(
                 &mut staged_paths,
             )?;
         }
+        if let Some(recycle_bin_options) = request.recycle_bin.as_ref() {
+            stage_recycle_bin_collection(
+                normalized_volume,
+                &staging_dir,
+                recycle_bin_options,
+                None,
+                reporter,
+                &mut archive_entries,
+                &mut staged_paths,
+            )?;
+        }
         if let Some(mft_options) = request.mft.as_ref() {
             stage_mft_collection(
                 normalized_volume,
@@ -881,6 +919,7 @@ pub fn collect_usn_archive(
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
+        recycle_bin: None,
         mft: None,
         logfile: None,
         indx: None,
@@ -905,6 +944,7 @@ pub fn collect_registry_archive(
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
+        recycle_bin: None,
         mft: None,
         logfile: None,
         indx: None,
@@ -928,6 +968,7 @@ pub fn collect_evtx_archive(
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
+        recycle_bin: None,
         mft: None,
         logfile: None,
         indx: None,
@@ -949,6 +990,7 @@ pub fn collect_mft_archive(
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
+        recycle_bin: None,
         mft: Some(MftCollectionOptions {
             mode: request.mode,
             elevate: request.elevate,
@@ -973,6 +1015,7 @@ pub fn collect_logfile_archive(
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
+        recycle_bin: None,
         mft: None,
         logfile: Some(LogFileCollectionOptions {
             mode: request.mode,
@@ -997,6 +1040,7 @@ pub fn collect_indx_archive(
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
+        recycle_bin: None,
         mft: None,
         logfile: None,
         indx: Some(IndxCollectionOptions {
@@ -1025,6 +1069,7 @@ pub fn collect_srum_archive(
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
+        recycle_bin: None,
         mft: None,
         logfile: None,
         indx: None,
@@ -1048,6 +1093,7 @@ pub fn collect_prefetch_archive(
         browser_artifacts: None,
         jump_lists: None,
         lnk: None,
+        recycle_bin: None,
         mft: None,
         logfile: None,
         indx: None,
@@ -1071,6 +1117,7 @@ pub fn collect_browser_artifacts_archive(
         }),
         jump_lists: None,
         lnk: None,
+        recycle_bin: None,
         mft: None,
         logfile: None,
         indx: None,
@@ -1094,6 +1141,7 @@ pub fn collect_jump_lists_archive(
             elevate: request.elevate,
         }),
         lnk: None,
+        recycle_bin: None,
         mft: None,
         logfile: None,
         indx: None,
@@ -1115,6 +1163,31 @@ pub fn collect_lnk_archive(
         browser_artifacts: None,
         jump_lists: None,
         lnk: Some(LnkCollectionOptions {
+            elevate: request.elevate,
+        }),
+        recycle_bin: None,
+        mft: None,
+        logfile: None,
+        indx: None,
+    })
+}
+
+pub fn collect_recycle_bin_archive(
+    request: &RecycleBinCollectionArchiveRequest,
+) -> Result<CollectionArchiveSummary> {
+    collect_collection_archive(&CollectionArchiveRequest {
+        volumes: request.volumes.clone(),
+        output_zip: request.output_zip.clone(),
+        staging_root: request.staging_root.clone(),
+        usn: None,
+        registry: None,
+        evtx: None,
+        srum: None,
+        prefetch: None,
+        browser_artifacts: None,
+        jump_lists: None,
+        lnk: None,
+        recycle_bin: Some(RecycleBinCollectionOptions {
             elevate: request.elevate,
         }),
         mft: None,
@@ -1591,6 +1664,11 @@ fn collection_archive_requests_elevation(request: &CollectionArchiveRequest) -> 
             .map(|options| options.elevate)
             .unwrap_or(false)
         || request
+            .recycle_bin
+            .as_ref()
+            .map(|options| options.elevate)
+            .unwrap_or(false)
+        || request
             .mft
             .as_ref()
             .map(|options| options.elevate)
@@ -1629,6 +1707,7 @@ fn should_share_vss_snapshot(request: &CollectionArchiveRequest) -> bool {
     let browser_artifacts_uses_vss = request.browser_artifacts.is_some();
     let jump_lists_uses_vss = request.jump_lists.is_some();
     let lnk_uses_vss = request.lnk.is_some();
+    let recycle_bin_uses_vss = request.recycle_bin.is_some();
     let mft_uses_vss = request
         .mft
         .as_ref()
@@ -1653,6 +1732,7 @@ fn should_share_vss_snapshot(request: &CollectionArchiveRequest) -> bool {
         browser_artifacts_uses_vss,
         jump_lists_uses_vss,
         lnk_uses_vss,
+        recycle_bin_uses_vss,
         mft_uses_vss,
         logfile_uses_vss,
         indx_uses_vss,
@@ -2216,6 +2296,79 @@ fn stage_lnk_collection(
     Ok(())
 }
 
+fn stage_recycle_bin_collection(
+    normalized_volume: &str,
+    staging_dir: &Path,
+    options: &RecycleBinCollectionOptions,
+    shared_shadow_copy: Option<&vss::ShadowCopy>,
+    reporter: &mut dyn FnMut(CollectionEvent),
+    archive_entries: &mut Vec<collection::ArchiveEntry>,
+    staged_paths: &mut Vec<PathBuf>,
+) -> Result<()> {
+    reporter(CollectionEvent::CollectorStarted {
+        collection_title: "Recycle Bin".to_string(),
+        volume: normalized_volume.to_string(),
+        progress_value: 0.02,
+        detail: format!("Preparing Recycle Bin collection on {normalized_volume}."),
+        progress_text: "Starting".to_string(),
+    });
+    let mut progress_reporter = |progress: recycle_bin::RecycleBinProgress| {
+        reporter(CollectionEvent::CollectorProgress {
+            collection_title: "Recycle Bin".to_string(),
+            volume: normalized_volume.to_string(),
+            progress_value: progress.progress_value,
+            detail: progress.detail,
+            progress_text: progress.progress_text,
+        });
+    };
+    let request = recycle_bin::RecycleBinCollectRequest {
+        volume: normalized_volume.to_string(),
+        out_dir: staging_dir.to_path_buf(),
+        manifest: Some(recycle_bin::default_manifest_path(
+            staging_dir,
+            normalized_volume,
+        )?),
+        artifact_manifest: Some(recycle_bin::default_artifact_manifest_path(
+            staging_dir,
+            normalized_volume,
+        )?),
+        collection_log: Some(recycle_bin::default_collection_log_path(
+            staging_dir,
+            normalized_volume,
+        )?),
+        diagnostic_log: None,
+        elevate: options.elevate,
+    };
+    let summary = if let Some(shadow_copy) = shared_shadow_copy {
+        recycle_bin::collect_with_progress_using_shadow_copy(
+            &request,
+            shadow_copy,
+            &mut progress_reporter,
+        )?
+    } else {
+        recycle_bin::collect_with_progress(&request, &mut progress_reporter)?
+    };
+
+    add_staged_paths_as_archive_entries(staging_dir, &summary.staged_paths, archive_entries)?;
+    let staged_count = summary.staged_paths.len();
+    let artifact_paths = recycle_bin_collection_artifact_paths(&summary);
+    staged_paths.extend(summary.staged_paths);
+    reporter(CollectionEvent::CollectorFinished {
+        collection_title: "Recycle Bin".to_string(),
+        volume: normalized_volume.to_string(),
+        progress_value: 1.0,
+        detail: format!("Collected and staged Recycle Bin files from {normalized_volume}."),
+        progress_text: format!(
+            "{} copied, {} failed",
+            summary.file_records.len(),
+            summary.failures.len()
+        ),
+        staged_paths: staged_count,
+        artifact_paths,
+    });
+    Ok(())
+}
+
 fn stage_mft_collection(
     normalized_volume: &str,
     staging_dir: &Path,
@@ -2630,6 +2783,32 @@ fn lnk_collection_artifact_paths(summary: &lnk::LnkCollectSummary) -> Vec<String
     paths
 }
 
+fn recycle_bin_collection_artifact_paths(
+    summary: &recycle_bin::RecycleBinCollectSummary,
+) -> Vec<String> {
+    let mut paths = summary
+        .file_records
+        .iter()
+        .map(|record| record.archive_path.clone())
+        .collect::<Vec<_>>();
+    if let Ok(relative_jsonl) = summary
+        .artifact_manifest_path
+        .strip_prefix(&summary.output_root)
+    {
+        paths.push(normalize_archive_path_string(relative_jsonl));
+    }
+    if let Ok(relative_manifest) = summary.manifest_path.strip_prefix(&summary.output_root) {
+        paths.push(normalize_archive_path_string(relative_manifest));
+    }
+    if let Ok(relative_log) = summary
+        .collection_log_path
+        .strip_prefix(&summary.output_root)
+    {
+        paths.push(normalize_archive_path_string(relative_log));
+    }
+    paths
+}
+
 fn add_staged_paths_as_archive_entries(
     staging_dir: &Path,
     paths: &[PathBuf],
@@ -2857,6 +3036,7 @@ fn selected_runtime_collector_count(request: &CollectionArchiveRequest) -> usize
         + usize::from(request.browser_artifacts.is_some())
         + usize::from(request.jump_lists.is_some())
         + usize::from(request.lnk.is_some())
+        + usize::from(request.recycle_bin.is_some())
         + usize::from(request.mft.is_some())
         + usize::from(request.logfile.is_some())
         + usize::from(request.indx.is_some())
@@ -3124,6 +3304,7 @@ mod tests {
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
+            recycle_bin: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -3154,6 +3335,7 @@ mod tests {
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
+            recycle_bin: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -3184,6 +3366,7 @@ mod tests {
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
+            recycle_bin: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -3209,6 +3392,7 @@ mod tests {
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
+            recycle_bin: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -3231,6 +3415,7 @@ mod tests {
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
+            recycle_bin: None,
             mft: Some(MftCollectionOptions {
                 mode: mft::MftAcquisitionMode::Vss,
                 elevate: false,
@@ -3256,6 +3441,7 @@ mod tests {
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
+            recycle_bin: None,
             mft: Some(MftCollectionOptions {
                 mode: mft::MftAcquisitionMode::Vss,
                 elevate: false,
@@ -3284,6 +3470,7 @@ mod tests {
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
+            recycle_bin: None,
             mft: Some(MftCollectionOptions {
                 mode: mft::MftAcquisitionMode::Vss,
                 elevate: false,
@@ -3317,6 +3504,7 @@ mod tests {
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
+            recycle_bin: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -3342,6 +3530,7 @@ mod tests {
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
+            recycle_bin: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -3367,6 +3556,7 @@ mod tests {
             browser_artifacts: Some(BrowserArtifactsCollectionOptions { elevate: false }),
             jump_lists: None,
             lnk: None,
+            recycle_bin: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -3392,6 +3582,7 @@ mod tests {
             browser_artifacts: None,
             jump_lists: Some(JumpListsCollectionOptions { elevate: false }),
             lnk: None,
+            recycle_bin: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -3417,6 +3608,7 @@ mod tests {
             browser_artifacts: None,
             jump_lists: None,
             lnk: Some(LnkCollectionOptions { elevate: false }),
+            recycle_bin: None,
             mft: None,
             logfile: None,
             indx: None,
@@ -3447,6 +3639,7 @@ mod tests {
             browser_artifacts: None,
             jump_lists: None,
             lnk: None,
+            recycle_bin: None,
             mft: None,
             logfile: None,
             indx: None,

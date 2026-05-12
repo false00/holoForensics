@@ -99,8 +99,8 @@ pub fn enabled_collection_definitions() -> Vec<CollectionDefinition> {
         collection(
             "windows_recycle_bin_info2_collection",
             "windows",
-            "Windows XP recycle bin INFO2",
-            None,
+            "Windows Recycle Bin",
+            Some("src/collections/windows/recycle_bin.rs"),
         ),
         collection(
             "windows_timeline_collection",
@@ -258,6 +258,15 @@ mod tests {
         assert!(collections.iter().any(|definition| {
             definition.name == "windows_lnk_collection"
                 && definition.implementation_path == Some("src/collections/windows/lnk.rs")
+        }));
+    }
+
+    #[test]
+    fn enabled_collections_include_recycle_bin_definition() {
+        let collections = enabled_collection_definitions();
+        assert!(collections.iter().any(|definition| {
+            definition.name == "windows_recycle_bin_info2_collection"
+                && definition.implementation_path == Some("src/collections/windows/recycle_bin.rs")
         }));
     }
 }

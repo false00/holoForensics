@@ -65,6 +65,7 @@ const TRIAGE_COLLECTION_TITLES: &[&str] = &[
     "SRUM",
     "LNK Files",
     "Jump Lists",
+    "Recycle Bin",
     "Prefetch",
     "$UsnJrnl",
     "Browser Artifacts",
@@ -497,6 +498,7 @@ struct CollectionExecutionRequest {
     collect_browser_artifacts: bool,
     collect_jump_lists: bool,
     collect_lnk: bool,
+    collect_recycle_bin: bool,
     collect_mft: bool,
     collect_logfile: bool,
     collect_indx: bool,
@@ -1359,6 +1361,11 @@ fn start_collection_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Re
                     lnk: request.collect_lnk.then_some(app::LnkCollectionOptions {
                         elevate: request.elevate,
                     }),
+                    recycle_bin: request.collect_recycle_bin.then_some(
+                        app::RecycleBinCollectionOptions {
+                            elevate: request.elevate,
+                        },
+                    ),
                     mft: request.collect_mft.then_some(app::MftCollectionOptions {
                         mode: mft::MftAcquisitionMode::Vss,
                         elevate: request.elevate,
@@ -1851,6 +1858,7 @@ fn collect_collection_request(
         collect_browser_artifacts,
         collect_jump_lists,
         collect_lnk,
+        collect_recycle_bin,
         collect_mft,
         collect_logfile,
         collect_indx,
@@ -1881,6 +1889,9 @@ fn collect_collection_request(
             selected_live_titles
                 .iter()
                 .any(|title| title == "LNK Files"),
+            selected_live_titles
+                .iter()
+                .any(|title| title == "Recycle Bin"),
             selected_live_titles.iter().any(|title| title == "$MFT"),
             selected_live_titles.iter().any(|title| title == "$LogFile"),
             selected_live_titles
@@ -1896,6 +1907,7 @@ fn collect_collection_request(
         && !collect_browser_artifacts
         && !collect_jump_lists
         && !collect_lnk
+        && !collect_recycle_bin
         && !collect_mft
         && !collect_logfile
         && !collect_indx
@@ -1941,6 +1953,7 @@ fn collect_collection_request(
         collect_browser_artifacts,
         collect_jump_lists,
         collect_lnk,
+        collect_recycle_bin,
         collect_mft,
         collect_logfile,
         collect_indx,
@@ -2360,20 +2373,8 @@ fn build_collection_activity_details(
     let Some(record) = record else {
         return Vec::new();
     };
-    if !matches!(
-        record.title.as_str(),
-        "Registry Hives"
-            | "$UsnJrnl"
-            | "Windows Event Logs"
-            | "SRUM"
-            | "Prefetch"
-            | "Browser Artifacts"
-            | "Jump Lists"
-            | "LNK Files"
-            | "$MFT"
-            | "$LogFile"
-            | "INDX Records"
-    ) {
+    let expected_artifacts = expected_collection_artifacts(&record.title);
+    if expected_artifacts.is_empty() {
         return Vec::new();
     }
 
@@ -2393,15 +2394,13 @@ fn build_collection_activity_details(
         if !entry.active {
             return collected;
         }
-        collected.extend(
-            expected_collection_artifacts(&record.title)
-                .into_iter()
-                .map(|(name, detail)| CollectionActivityDetailRecord {
-                    name: name.to_string(),
-                    state: "In progress".to_string(),
-                    detail: detail.to_string(),
-                }),
-        );
+        collected.extend(expected_artifacts.iter().map(|(name, detail)| {
+            CollectionActivityDetailRecord {
+                name: (*name).to_string(),
+                state: "In progress".to_string(),
+                detail: (*detail).to_string(),
+            }
+        }));
         return collected;
     }
 
@@ -2416,7 +2415,7 @@ fn build_collection_activity_details(
         "Pending"
     };
 
-    expected_collection_artifacts(&record.title)
+    expected_artifacts
         .into_iter()
         .map(|(name, detail)| CollectionActivityDetailRecord {
             name: name.to_string(),
@@ -2687,6 +2686,28 @@ fn expected_collection_artifacts(title: &str) -> Vec<(&'static str, &'static str
                 "LNK collection log",
             ),
         ],
+        "Recycle Bin" => vec![
+            (
+                "C/$Recycle.Bin/**/*",
+                "Modern per-volume Recycle Bin contents preserved exactly as named in the VSS snapshot",
+            ),
+            (
+                "C/Recycler/**/*",
+                "Legacy XP or Server 2003 Recycle Bin contents including INFO2 and renamed payload files",
+            ),
+            (
+                "C/recycle_bin_manifest.jsonl",
+                "JSONL artifact manifest with root kind, SID, pair identifiers, timestamps, attributes, and SHA-256",
+            ),
+            (
+                "$metadata/collectors/C/windows_recycle_bin/manifest.json",
+                "Recycle Bin collection manifest",
+            ),
+            (
+                "$metadata/collectors/C/windows_recycle_bin/collection.log",
+                "Recycle Bin collection log",
+            ),
+        ],
         "$MFT" => vec![
             ("C/$MFT.bin", "Raw Master File Table bytes"),
             ("C/$MFT.bin.sha256", "SHA-256 hash for the collected $MFT"),
@@ -2791,6 +2812,10 @@ fn artifact_detail_for_path(path: &str) -> String {
         "LNK JSONL artifact manifest".to_string()
     } else if lower.ends_with(".lnk") {
         "Windows shortcut (LNK) file".to_string()
+    } else if lower.ends_with("/recycle_bin_manifest.jsonl") {
+        "Recycle Bin JSONL artifact manifest".to_string()
+    } else if lower.contains("/$recycle.bin/") || lower.contains("/recycler/") {
+        "Recycle Bin artifact".to_string()
     } else if lower.ends_with("/jump_lists_manifest.jsonl") {
         "Jump Lists JSONL artifact manifest".to_string()
     } else if lower.ends_with(".automaticdestinations-ms")
@@ -2837,6 +2862,8 @@ fn artifact_name_for_path(path: &str) -> String {
         "INDX.rawpack.sha256".to_string()
     } else if lower.ends_with("/lnk_manifest.jsonl") {
         "lnk_manifest.jsonl".to_string()
+    } else if lower.ends_with("/recycle_bin_manifest.jsonl") {
+        "recycle_bin_manifest.jsonl".to_string()
     } else if lower.ends_with("/jump_lists_manifest.jsonl") {
         "jump_lists_manifest.jsonl".to_string()
     } else if lower.contains("/windows/system32/sru/") {
@@ -4378,6 +4405,9 @@ fn selected_runtime_collectors_label(request: &CollectionExecutionRequest) -> St
     if request.collect_lnk {
         labels.push("lnk");
     }
+    if request.collect_recycle_bin {
+        labels.push("recycle-bin");
+    }
     if request.collect_mft {
         labels.push("mft");
     }
@@ -4488,11 +4518,11 @@ fn build_collection_catalog_records() -> Vec<CollectionCatalogRecord> {
         CollectionCatalogRecord::new(
             "Recycle Bin",
             "Deleted data",
-            "Planned",
+            "Available",
             "Recycle Bin artifacts preserve deleted-file metadata and, depending on version and state, sometimes the deleted content itself.",
-            "Targets: C:\\$Recycle.Bin, INFO2, $I, $R",
-            "Use this to recover original names, paths, sizes, and deletion times, and to check whether tools or staged data were hidden in the bin root.",
-            false,
+            "Targets: C:\\$Recycle.Bin, C:\\Recycler, INFO2, $I, $R, SID subdirectories, root-level files, and nested $R directories",
+            "Included in Create Package today. The live Rust collector uses a VSS snapshot, copies both modern and legacy Recycle Bin roots without restoring original names, preserves logical Windows paths, hashes each copied file with SHA-256, and writes a JSONL artifact manifest plus centralized collector metadata.",
+            true,
         ),
         CollectionCatalogRecord::new(
             "Browser Artifacts",
@@ -5095,6 +5125,27 @@ mod tests {
     }
 
     #[test]
+    fn recycle_bin_collection_catalog_record_is_live_and_describes_raw_snapshot_copy() {
+        let records = build_collection_catalog_records();
+
+        let recycle_bin = records
+            .iter()
+            .find(|record| record.title == "Recycle Bin")
+            .expect("recycle bin record should exist");
+
+        assert!(recycle_bin.live);
+        assert_eq!(recycle_bin.status, "Available");
+        assert!(recycle_bin.targets.contains("$Recycle.Bin"));
+        assert!(recycle_bin.targets.contains("Recycler"));
+        assert!(
+            recycle_bin
+                .note
+                .contains("without restoring original names")
+        );
+        assert!(recycle_bin.note.contains("JSONL artifact manifest"));
+    }
+
+    #[test]
     fn prefetch_collection_activity_details_show_expected_prefetch_artifacts() {
         let record = super::CollectionActivityRecord {
             title: "Prefetch".to_string(),
@@ -5184,6 +5235,82 @@ mod tests {
             normalized_selected_volumes_or_default(&["Z:".to_string()], &drives),
             vec!["C:".to_string()]
         );
+    }
+
+    #[test]
+    fn recycle_bin_collection_activity_details_show_expected_artifacts_while_running() {
+        let record = super::CollectionActivityRecord {
+            title: "Recycle Bin".to_string(),
+            category: "Deleted-file recovery".to_string(),
+            detail: "Recycle Bin collector is running.".to_string(),
+            status: "Running".to_string(),
+            tone: CollectionActivityTone::Running,
+            active: true,
+            show_progress: true,
+            progress_value: 0.35,
+            progress_text: "Copying".to_string(),
+            package_pending: false,
+        };
+        let progress = CollectionProgressState {
+            collectors: BTreeMap::from([(
+                "Recycle Bin".to_string(),
+                CollectionCollectorProgress {
+                    active: true,
+                    started: true,
+                    ..Default::default()
+                },
+            )]),
+            ..Default::default()
+        };
+
+        let details = build_collection_activity_details(Some(&record), Some(&progress));
+
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("$Recycle.Bin"))
+        );
+        assert!(details.iter().any(|item| item.name.contains("Recycler")));
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("recycle_bin_manifest.jsonl"))
+        );
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("windows_recycle_bin/manifest.json"))
+        );
+        assert!(details.iter().all(|item| item.state == "In progress"));
+    }
+
+    #[test]
+    fn live_collectors_have_activity_detail_coverage() {
+        for catalog_record in build_collection_catalog_records()
+            .into_iter()
+            .filter(|record| record.live)
+        {
+            let activity_record = super::CollectionActivityRecord {
+                title: catalog_record.title.clone(),
+                category: catalog_record.category,
+                detail: catalog_record.summary,
+                status: "Ready".to_string(),
+                tone: CollectionActivityTone::Ready,
+                active: false,
+                show_progress: false,
+                progress_value: 0.0,
+                progress_text: String::new(),
+                package_pending: false,
+            };
+
+            let details = build_collection_activity_details(Some(&activity_record), None);
+
+            assert!(
+                !details.is_empty(),
+                "live collector {} should show expected activity details",
+                activity_record.title
+            );
+        }
     }
 
     #[test]

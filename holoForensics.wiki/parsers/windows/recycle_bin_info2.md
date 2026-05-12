@@ -4,6 +4,8 @@
 
 Native Rust parser for Windows XP recycle-bin `INFO2` artifacts.
 
+The live collection contract bound to this parser now preserves both modern `$Recycle.Bin` and legacy `Recycler` roots, but this parser still emits records only from XP or Server 2003 `INFO2` files.
+
 ## Source
 
 - `src/parsers/windows/recycle_bin_info2.rs`
@@ -11,6 +13,7 @@ Native Rust parser for Windows XP recycle-bin `INFO2` artifacts.
 ## Inputs
 
 - Windows XP `INFO2`
+- Preserved live collection archives from `windows_recycle_bin_info2_collection` when `INFO2` exists under `Recycler`
 
 ## Output
 
