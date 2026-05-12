@@ -118,8 +118,11 @@ cargo run -- ui
 The desktop UI supports:
 
 - Collection section: `Full`, `Triage`, and `Custom` profiles are exposed in the UI. The Collection tab presents the Windows collection surfaces listed above, with available live collectors for event logs, registry, browser artifacts, SRUM, `$MFT`, `$LogFile`, INDX records, and `$UsnJrnl`.
+- Collection workflow section: when multiple VSS-backed collectors run for the same volume, the package workflow reuses one shared point-in-time VSS snapshot so related artifacts stay aligned.
 - Parse Mode section: inspect a selected zip, detect supported artifact groups, choose which detected groups to run, and write parser results without blocking the UI.
 - Settings section: persist theme and Elasticsearch destination defaults. The password remains session-local.
+- Failure handling section: collection and parse failures surface through desktop error dialogs, and startup failures before Slint is ready fall back to a native Windows error dialog with the technical log path.
+- Runtime safety section: VSS shadow copies created by Holo Forensics are tracked under `~/.holo-forensics/vss-shadow-copies.json`. If the app starts and those tracked snapshots still exist, the desktop UI prompts to keep them for reuse or delete them before continuing.
 
 For a non-interactive parse validation run:
 

@@ -15,7 +15,7 @@ INDX is not one global NTFS file. It is directory-scoped index metadata, so this
 
 ## Modes
 
-- `vss`: default. Creates or reuses a `Win32_ShadowCopy`, opens the snapshot device without a trailing slash, parses NTFS metadata, and collects directory `$I30` attributes from the point-in-time snapshot.
+- `vss`: default. Creates or reuses a native Windows VSS snapshot, opens the snapshot device without a trailing slash, parses NTFS metadata, and collects directory `$I30` attributes from the point-in-time snapshot.
 - `raw`: explicit live raw mode. Opens `\\.\C:` read-only with shared read/write/delete access and records a warning that the volume is a moving target.
 
 Raw mode is not equivalent to VSS or a dead-box image. INDX and directory metadata can change during live acquisition.
@@ -33,7 +33,7 @@ holo-forensics collect-indx --volume C: --out-dir C:\temp\indx --max-directories
 
 - Normalizes the selected volume.
 - Attempts to enable `SeBackupPrivilege`, `SeManageVolumePrivilege`, and `SeRestorePrivilege`.
-- In VSS mode, creates a `Win32_ShadowCopy` through the shared Rust VSS helper; no PowerShell or `vssadmin` path is used.
+- In VSS mode, creates a native Windows VSS snapshot through the shared Rust VSS helper; no PowerShell or `vssadmin` path is used.
 - In archive collection, reuses the shared VSS snapshot when INDX is collected with `$MFT`, `$LogFile`, SRUM, Registry, USN, EVTX, and/or Browser Artifacts for the same volume.
 - Opens the VSS snapshot device or live volume as a raw NTFS device.
 - Reads and validates the NTFS boot sector.

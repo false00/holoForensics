@@ -1,13 +1,15 @@
 import { ThemeTokens } from "theme.slint";
-import { ParseArtifactItem, CollectionSurfaceItem, CollectionActivityDetailItem, CollectionActivityItem, DriveItem } from "models.slint";
+import { ParseArtifactItem, CollectionSurfaceItem, CollectionActivityDetailItem, CollectionActivityItem, DriveItem, ShadowCopyRecoveryItem } from "models.slint";
 import { CollectionPage } from "pages/collection_page.slint";
 import { AboutDialog } from "dialogs/about_dialog.slint";
 import { EvidenceScopeDialog } from "dialogs/evidence_scope_dialog.slint";
+import { ErrorDialog } from "dialogs/error_dialog.slint";
 import { SettingsDialog } from "dialogs/settings_dialog.slint";
+import { ShadowCopyRecoveryDialog } from "dialogs/shadow_copy_recovery_dialog.slint";
 import { UsnSettingsDialog } from "dialogs/usn_settings_dialog.slint";
 
 export { ThemeTokens } from "theme.slint";
-export { ParseArtifactItem, CollectionSurfaceItem, CollectionActivityDetailItem, CollectionActivityItem, DriveItem } from "models.slint";
+export { ParseArtifactItem, CollectionSurfaceItem, CollectionActivityDetailItem, CollectionActivityItem, DriveItem, ShadowCopyRecoveryItem } from "models.slint";
 
 export component AppWindow inherits Window {
     title: "Holo Forensics";
@@ -36,6 +38,14 @@ export component AppWindow inherits Window {
     in-out property <bool> settings-open: false;
     in-out property <bool> evidence-scope-open: false;
     in-out property <bool> collection-usn-settings-open: false;
+    in-out property <bool> shadow-copy-recovery-open: false;
+    in-out property <string> shadow-copy-recovery-summary;
+    in property <[ShadowCopyRecoveryItem]> shadow-copy-recovery-items;
+    in-out property <bool> error-dialog-open: false;
+    in-out property <string> error-dialog-title;
+    in-out property <string> error-dialog-summary;
+    in-out property <string> error-dialog-detail;
+    in-out property <string> error-dialog-log-path;
     in-out property <string> collection-status;
     in-out property <string> collection-activity-summary;
     in-out property <bool> collection-activity-pulse: false;
@@ -82,6 +92,8 @@ export component AppWindow inherits Window {
     callback toggle-detected-artifact(int);
     callback run-parse-requested();
     callback run-collection-requested();
+    callback keep-shadow-copies-requested();
+    callback delete-shadow-copies-requested();
 
     Rectangle {
         width: root.width;
@@ -152,6 +164,25 @@ export component AppWindow inherits Window {
             width: parent.width;
             height: parent.height;
             close-requested => { root.about-open = false; }
+        }
+
+        if root.shadow-copy-recovery-open : ShadowCopyRecoveryDialog {
+            width: parent.width;
+            height: parent.height;
+            summary: root.shadow-copy-recovery-summary;
+            items: root.shadow-copy-recovery-items;
+            keep-requested => { root.keep-shadow-copies-requested(); }
+            delete-all-requested => { root.delete-shadow-copies-requested(); }
+        }
+
+        if root.error-dialog-open : ErrorDialog {
+            width: parent.width;
+            height: parent.height;
+            title: root.error-dialog-title;
+            summary: root.error-dialog-summary;
+            detail: root.error-dialog-detail;
+            technical-log-path: root.error-dialog-log-path;
+            close-requested => { root.error-dialog-open = false; }
         }
     }
 }

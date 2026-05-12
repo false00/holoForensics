@@ -13,7 +13,7 @@ Native Rust live collector for Windows SRUM acquisition. The collector uses a VS
 
 ## Mode
 
-- `vss`: default and only current acquisition mode. Creates or reuses a `Win32_ShadowCopy`, copies SRUM files from the point-in-time snapshot, hashes source and destination bytes, and records copy failures honestly.
+- `vss`: default and only current acquisition mode. Creates or reuses a native Windows VSS snapshot, copies SRUM files from the point-in-time snapshot, hashes source and destination bytes, and records copy failures honestly.
 
 ## CLI
 
@@ -25,7 +25,7 @@ holo-forensics collect-srum --volume C: --out-dir C:\temp\srum --elevate
 
 - Normalizes the selected volume.
 - Attempts to enable `SeBackupPrivilege`, `SeRestorePrivilege`, and `SeSecurityPrivilege`.
-- Creates a `Win32_ShadowCopy` through the shared Rust VSS helper; no PowerShell or `vssadmin` path is used.
+- Creates a native Windows VSS snapshot through the shared Rust VSS helper; no PowerShell or `vssadmin` path is used.
 - In archive collection, reuses the shared VSS snapshot when SRUM is collected with Registry, EVTX, `$MFT`, `$LogFile`, INDX, USN, and/or Browser Artifacts for the same volume.
 - Copies every file directly under `C:\Windows\System32\sru\` when present.
 - Copies supporting hives:

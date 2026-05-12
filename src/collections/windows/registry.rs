@@ -1411,7 +1411,7 @@ mod platform {
             RegOpenKeyExW(
                 root,
                 PCWSTR(subkey_wide.as_ptr()),
-                0,
+                Some(0),
                 KEY_READ,
                 &mut raw_key,
             )
@@ -1434,10 +1434,10 @@ mod platform {
                 RegEnumKeyExW(
                     key.0,
                     index,
-                    PWSTR(name_buffer.as_mut_ptr()),
+                    Some(PWSTR(name_buffer.as_mut_ptr())),
                     &mut name_len,
                     None,
-                    PWSTR::null(),
+                    Some(PWSTR::null()),
                     None,
                     None,
                 )

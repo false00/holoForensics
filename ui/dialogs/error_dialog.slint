@@ -1,0 +1,107 @@
+import { ThemeTokens } from "../theme.slint";
+import { CardPanel, GhostButton, HelperText, SectionLabel } from "../components.slint";
+import { ScrollView } from "std-widgets.slint";
+
+export component ErrorDialog inherits Rectangle {
+    in property <string> title;
+    in property <string> summary;
+    in property <string> detail;
+    in property <string> technical-log-path;
+
+    callback close-requested();
+
+    background: ThemeTokens.overlay;
+
+    CardPanel {
+        width: min(620px, parent.width - 32px);
+        height: min(452px, parent.height - 32px);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: ThemeTokens.card;
+
+        Rectangle {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: 6px;
+            background: ThemeTokens.crimson;
+        }
+
+        VerticalLayout {
+            width: parent.width;
+            height: parent.height;
+            padding: 18px;
+            spacing: 12px;
+
+            SectionLabel {
+                text: "ERROR";
+                color: ThemeTokens.carmine;
+            }
+
+            Text {
+                horizontal-stretch: 1;
+                height: 34px;
+                text: root.title == "" ? "Operation failed" : root.title;
+                color: ThemeTokens.text;
+                font-family: "Tomorrow";
+                font-size: 26px;
+                font-weight: 300;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            HelperText {
+                horizontal-stretch: 1;
+                height: 40px;
+                text: root.summary == "" ? "The requested action could not be completed." : root.summary;
+            }
+
+            SectionLabel { text: "DETAILS"; }
+
+            Rectangle {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+                border-radius: ThemeTokens.radius-medium;
+                border-width: 1px;
+                border-color: ThemeTokens.stroke;
+                background: ThemeTokens.panel;
+                clip: true;
+
+                ScrollView {
+                    x: 10px;
+                    y: 10px;
+                    width: parent.width - 20px;
+                    height: parent.height - 20px;
+
+                    Text {
+                        width: max(0px, parent.width - 4px);
+                        text: root.detail == "" ? root.summary : root.detail;
+                        color: ThemeTokens.text;
+                        font-family: "Figtree";
+                        font-size: 12px;
+                        font-weight: 400;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            HelperText {
+                horizontal-stretch: 1;
+                height: 32px;
+                text: root.technical-log-path == "" ? "The technical log console contains the full failure record." : "The technical log console and " + root.technical-log-path + " contain the full failure record.";
+            }
+
+            HorizontalLayout {
+                spacing: 10px;
+
+                Rectangle { horizontal-stretch: 1; }
+
+                GhostButton {
+                    width: 112px;
+                    label: "Dismiss";
+                    clicked => { root.close-requested(); }
+                }
+            }
+        }
+    }
+}

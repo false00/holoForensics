@@ -2200,10 +2200,20 @@ fn relaunch_collection_archive_worker(
     )
     .and_then(|_| load_collection_archive_worker_summary(&summary_path));
 
-    let _ = fs::remove_file(&request_path);
-    let _ = fs::remove_file(&summary_path);
-    let _ = fs::remove_file(&event_log_path);
-    result
+    match result {
+        Ok(summary) => {
+            let _ = fs::remove_file(&request_path);
+            let _ = fs::remove_file(&summary_path);
+            let _ = fs::remove_file(&event_log_path);
+            Ok(summary)
+        }
+        Err(error) => Err(error.context(format!(
+            "collection worker traces preserved for inspection: request={}, summary={}, events={}",
+            request_path.display(),
+            summary_path.display(),
+            event_log_path.display()
+        ))),
+    }
 }
 
 #[cfg(target_os = "windows")]

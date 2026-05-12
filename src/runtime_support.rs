@@ -27,6 +27,10 @@ pub fn app_settings_path() -> PathBuf {
     app_settings_path_from_dir(&forensics_dir())
 }
 
+pub fn shadow_copy_tracker_path() -> PathBuf {
+    shadow_copy_tracker_path_from_dir(&forensics_dir())
+}
+
 pub fn append_technical_log(source: &str, message: impl AsRef<str>) -> Result<()> {
     let path = technical_log_path();
     if let Some(parent) = path.parent() {
@@ -103,6 +107,10 @@ fn app_settings_path_from_dir(dir: &Path) -> PathBuf {
     dir.join("app-settings.json")
 }
 
+fn shadow_copy_tracker_path_from_dir(dir: &Path) -> PathBuf {
+    dir.join("vss-shadow-copies.json")
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -113,7 +121,7 @@ mod tests {
 
     use super::{
         app_settings_path_from_dir, forensics_dir_from_home, read_log_tail,
-        technical_log_path_from_dir,
+        shadow_copy_tracker_path_from_dir, technical_log_path_from_dir,
     };
 
     #[test]
@@ -135,6 +143,10 @@ mod tests {
         assert_eq!(
             app_settings_path_from_dir(&dir),
             PathBuf::from(r"C:\Users\Analyst\.holo-forensics\app-settings.json")
+        );
+        assert_eq!(
+            shadow_copy_tracker_path_from_dir(&dir),
+            PathBuf::from(r"C:\Users\Analyst\.holo-forensics\vss-shadow-copies.json")
         );
     }
 

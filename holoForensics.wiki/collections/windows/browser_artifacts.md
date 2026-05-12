@@ -13,7 +13,7 @@ Native Rust live collector for Windows browser artifact acquisition. The collect
 
 ## Mode
 
-- `vss`: default and only current acquisition mode. Creates or reuses a `Win32_ShadowCopy`, copies targeted browser and support files from the point-in-time snapshot, hashes source and destination bytes, and records copy failures honestly.
+- `vss`: default and only current acquisition mode. Creates or reuses a native Windows VSS snapshot, copies targeted browser and support files from the point-in-time snapshot, hashes source and destination bytes, and records copy failures honestly.
 
 ## CLI
 
@@ -25,7 +25,7 @@ holo-forensics collect-browser-artifacts --volume C: --out-dir C:\temp\browser -
 
 - Normalizes the selected volume.
 - Attempts to enable `SeBackupPrivilege`, `SeRestorePrivilege`, and `SeSecurityPrivilege`.
-- Creates a `Win32_ShadowCopy` through the shared Rust VSS helper; no PowerShell or `vssadmin` path is used.
+- Creates a native Windows VSS snapshot through the shared Rust VSS helper; no PowerShell or `vssadmin` path is used.
 - In archive collection, reuses the shared VSS snapshot when Browser Artifacts are collected with Registry, EVTX, SRUM, `$MFT`, `$LogFile`, INDX, and/or USN for the same volume.
 - Enumerates `C:\Users\*` from the snapshot and copies targeted Chromium artifacts when present:
   - User Data root files: `Local State`, `First Run`, `Last Version`

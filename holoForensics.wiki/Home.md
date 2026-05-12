@@ -48,9 +48,10 @@ The desktop application focuses on the work investigators repeat most:
 - Package live artifacts through the Rust collectors.
 - Inspect an evidence zip and select detected parser groups.
 - Parse in the background while progress, logs, and final output paths remain visible.
+- Surface collection and parse failures in modal error dialogs, with a native Windows fallback if startup fails before the UI is ready.
 - Persist operator preferences such as theme, output locations, and search defaults.
 
-The desktop is not a thin wrapper around shell scripts. It calls the same runtime paths used by the CLI, including shared VSS snapshot handling, archive packaging, parser planning, and manifest generation.
+The desktop is not a thin wrapper around shell scripts. It calls the same runtime paths used by the CLI, including shared VSS snapshot handling, tracked shadow-copy recovery, archive packaging, parser planning, and manifest generation.
 
 ## Runtime Capabilities
 
@@ -68,6 +69,8 @@ The desktop is not a thin wrapper around shell scripts. It calls the same runtim
 | `$UsnJrnl` | Available | Direct stream, VSS stream, and VSS raw NTFS acquisition with active-window and sparse modes |
 
 When multiple VSS-backed collectors run for the same volume, the archive workflow uses a shared point-in-time snapshot so related artifacts line up cleanly in time.
+
+The desktop startup path also reconciles previously tracked shadow copies and prompts the operator to keep or delete them before continuing.
 
 ### Native Parser Families
 

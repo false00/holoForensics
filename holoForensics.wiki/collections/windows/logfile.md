@@ -13,7 +13,7 @@ Native Rust live collector for the NTFS `$LogFile` transaction log. The default 
 
 ## Modes
 
-- `vss`: default. Creates or reuses a `Win32_ShadowCopy`, opens the snapshot device without a trailing slash, parses NTFS metadata, and extracts `$LogFile` from the point-in-time snapshot.
+- `vss`: default. Creates or reuses a native Windows VSS snapshot, opens the snapshot device without a trailing slash, parses NTFS metadata, and extracts `$LogFile` from the point-in-time snapshot.
 - `raw`: explicit live raw mode. Opens `\\.\C:` read-only with shared read/write/delete access and records a warning that `$LogFile` may change during acquisition.
 
 VSS is preferred because `$LogFile` is actively updated on live systems and is more useful when collected from the same point-in-time snapshot as `$MFT`.
@@ -30,7 +30,7 @@ holo-forensics collect-logfile --all-volumes --mode vss --out-dir E:\Evidence --
 
 - Normalizes the selected volume.
 - Attempts to enable `SeBackupPrivilege`, `SeManageVolumePrivilege`, and `SeRestorePrivilege`.
-- In VSS mode, creates a `Win32_ShadowCopy` through the shared Rust VSS helper; no PowerShell or `vssadmin` path is used.
+- In VSS mode, creates a native Windows VSS snapshot through the shared Rust VSS helper; no PowerShell or `vssadmin` path is used.
 - In archive collection, reuses the shared VSS snapshot when `$LogFile` is collected with `$MFT`, INDX, SRUM, Registry, USN, EVTX, and/or Browser Artifacts for the same volume.
 - Opens the VSS snapshot device or live volume as a raw NTFS device.
 - Reads and validates the NTFS boot sector.

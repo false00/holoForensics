@@ -1,0 +1,159 @@
+import { ThemeTokens } from "../theme.slint";
+import { CardPanel, GhostButton, HelperText, PrimaryButton, SectionLabel } from "../components.slint";
+import { ShadowCopyRecoveryItem } from "../models.slint";
+import { ScrollView } from "std-widgets.slint";
+
+export component ShadowCopyRecoveryDialog inherits Rectangle {
+    in property <string> summary;
+    in property <[ShadowCopyRecoveryItem]> items;
+
+    callback keep-requested();
+    callback delete-all-requested();
+
+    background: ThemeTokens.overlay;
+
+    CardPanel {
+        width: min(760px, parent.width - 32px);
+        height: min(560px, parent.height - 32px);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: ThemeTokens.card;
+
+        Rectangle {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: 6px;
+            background: ThemeTokens.copal;
+        }
+
+        VerticalLayout {
+            width: parent.width;
+            height: parent.height;
+            padding: 18px;
+            spacing: 12px;
+
+            SectionLabel { text: "SHADOW COPY RECOVERY"; }
+
+            Text {
+                horizontal-stretch: 1;
+                height: 34px;
+                text: "Recovered Volume Shadow Copies";
+                color: ThemeTokens.text;
+                font-family: "Tomorrow";
+                font-size: 26px;
+                font-weight: 300;
+                vertical-alignment: center;
+            }
+
+            HelperText {
+                horizontal-stretch: 1;
+                height: 44px;
+                text: root.summary;
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+                border-radius: ThemeTokens.radius-medium;
+                border-width: 1px;
+                border-color: ThemeTokens.stroke;
+                background: ThemeTokens.panel;
+                clip: true;
+
+                ScrollView {
+                    x: 8px;
+                    y: 8px;
+                    width: parent.width - 16px;
+                    height: parent.height - 16px;
+
+                    VerticalLayout {
+                        width: max(0px, parent.width - 4px);
+                        spacing: 8px;
+
+                        for item[index] in root.items : Rectangle {
+                            height: 92px;
+                            border-radius: ThemeTokens.radius-medium;
+                            border-width: 1px;
+                            border-color: ThemeTokens.stroke;
+                            background: ThemeTokens.card;
+
+                            VerticalLayout {
+                                width: parent.width;
+                                height: parent.height;
+                                padding: 12px;
+                                spacing: 4px;
+
+                                HorizontalLayout {
+                                    height: 20px;
+                                    spacing: 12px;
+
+                                    Text {
+                                        width: 52px;
+                                        text: item.volume;
+                                        color: ThemeTokens.text;
+                                        font-family: "Tomorrow";
+                                        font-size: 18px;
+                                        font-weight: 300;
+                                        vertical-alignment: center;
+                                    }
+
+                                    Text {
+                                        horizontal-stretch: 1;
+                                        text: item.created_at;
+                                        color: ThemeTokens.muted;
+                                        font-family: "Figtree";
+                                        font-size: 12px;
+                                        font-weight: 400;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                }
+
+                                HelperText {
+                                    horizontal-stretch: 1;
+                                    height: 18px;
+                                    text: "Shadow ID: " + item.shadow_id;
+                                    overflow: elide;
+                                }
+
+                                HelperText {
+                                    horizontal-stretch: 1;
+                                    height: 30px;
+                                    text: "Device: " + item.device_object;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            HelperText {
+                horizontal-stretch: 1;
+                height: 30px;
+                text: "Choose Keep For Reuse to leave these snapshots tracked in the application runtime directory, or Delete All to remove every recovered snapshot now.";
+            }
+
+            HorizontalLayout {
+                spacing: 10px;
+
+                GhostButton {
+                    width: 148px;
+                    label: "Keep For Reuse";
+                    clicked => { root.keep-requested(); }
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                PrimaryButton {
+                    width: 128px;
+                    label: "Delete All";
+                    fill: ThemeTokens.crimson;
+                    hover-fill: ThemeTokens.carmine;
+                    stroke: ThemeTokens.crimson.with-alpha(0.72);
+                    clicked => { root.delete-all-requested(); }
+                }
+            }
+        }
+    }
+}

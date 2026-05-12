@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::collections::{BTreeMap, BTreeSet, hash_map::DefaultHasher};
 use std::env;
 use std::fs;
@@ -15,7 +16,7 @@ use slint::{ComponentHandle, VecModel};
 
 use crate::app::{self, ParseCli, ParseEvent, ParseRunOptions};
 use crate::collection_catalog;
-use crate::collections::windows::{indx, logfile, mft, registry, usn_journal};
+use crate::collections::windows::{indx, logfile, mft, registry, usn_journal, vss};
 use crate::runtime_support;
 
 #[cfg(windows)]
@@ -24,7 +25,7 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 #[cfg(windows)]
 use windows::{
     Win32::{
-        Foundation::{BOOL, E_ABORT, ERROR_SUCCESS, HWND},
+        Foundation::{E_ABORT, ERROR_SUCCESS, HWND},
         Graphics::Dwm::{
             DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE,
             DwmSetWindowAttribute,
@@ -40,8 +41,9 @@ use windows::{
             FileOpenDialog, IFileOpenDialog, IShellItem, SHCreateItemFromParsingName,
             SIGDN_FILESYSPATH,
         },
+        UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MB_TASKMODAL, MessageBoxW},
     },
-    core::{Error as WindowsError, HSTRING, PCWSTR, w},
+    core::{BOOL, Error as WindowsError, HSTRING, PCWSTR, w},
 };
 
 slint::include_modules!();
@@ -389,6 +391,7 @@ struct DesktopState {
     selected_collection_activity_title: Option<String>,
     detected_plans: Vec<DetectedPlanRecord>,
     selected_collection_volumes: Vec<String>,
+    tracked_shadow_copies: Vec<vss::TrackedShadowCopy>,
 }
 
 impl DesktopState {
@@ -402,6 +405,7 @@ impl DesktopState {
             selected_collection_activity_title: None,
             detected_plans: Vec::new(),
             selected_collection_volumes: default_collection_volumes(),
+            tracked_shadow_copies: Vec::new(),
         }
     }
 }
@@ -511,6 +515,14 @@ pub fn launch() -> Result<()> {
 }
 
 pub fn launch_with_options(options: DesktopLaunchOptions) -> Result<()> {
+    let result = guard_desktop_action("Launch desktop UI", || try_launch_with_options(options));
+    if let Err(error) = &result {
+        report_startup_failure(error);
+    }
+    result
+}
+
+fn try_launch_with_options(options: DesktopLaunchOptions) -> Result<()> {
     let app = AppWindow::new()?;
     register_embedded_fonts();
 
@@ -552,6 +564,66 @@ pub fn validate_offline_parse(input: PathBuf, output: Option<PathBuf>) -> Result
     );
     Ok(())
 }
+
+fn report_startup_failure(error: &anyhow::Error) {
+    let title = "Holo Forensics could not start";
+    let summary = error_summary(error);
+    let detail = format_error_details(error);
+    let log_path = runtime_support::technical_log_path();
+    let log_hint = match runtime_support::append_technical_log(
+        "desktop-startup",
+        format!("{title}\n{detail}").as_str(),
+    ) {
+        Ok(()) => Some(display_path(&log_path)),
+        Err(log_error) => Some(format!("Technical log unavailable: {log_error}")),
+    };
+
+    show_startup_error_dialog(
+        title,
+        &build_startup_error_dialog_body(&summary, &detail, log_hint.as_deref()),
+    );
+}
+
+fn build_startup_error_dialog_body(
+    summary: &str,
+    detail: &str,
+    log_hint: Option<&str>,
+) -> String {
+    let mut body = summary.trim().to_string();
+    if body.is_empty() {
+        body = "The desktop UI failed during startup.".to_string();
+    }
+
+    if detail.trim() != body {
+        body.push_str("\n\nDetails:\n");
+        body.push_str(detail.trim());
+    }
+
+    if let Some(log_hint) = log_hint.filter(|value| !value.trim().is_empty()) {
+        body.push_str("\n\n");
+        body.push_str(log_hint);
+    }
+
+    body
+}
+
+#[cfg(windows)]
+fn show_startup_error_dialog(title: &str, body: &str) {
+    let title = HSTRING::from(title);
+    let body = HSTRING::from(body);
+
+    unsafe {
+        let _ = MessageBoxW(
+            None,
+            &body,
+            &title,
+            MB_OK | MB_ICONERROR | MB_TASKMODAL | MB_SETFOREGROUND,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn show_startup_error_dialog(_title: &str, _body: &str) {}
 
 fn initialize_app(
     app: &AppWindow,
@@ -600,6 +672,16 @@ fn initialize_app(
     app.set_collection_sparse(settings.collection_sparse);
     app.set_collection_elevate(collection_elevate);
     app.set_custom_usn_selected(settings.custom_usn_selected);
+    app.set_shadow_copy_recovery_open(false);
+    app.set_shadow_copy_recovery_summary("".into());
+    app.set_shadow_copy_recovery_items(
+        Rc::new(VecModel::from(Vec::<ShadowCopyRecoveryItem>::new())).into(),
+    );
+    app.set_error_dialog_open(false);
+    app.set_error_dialog_title("".into());
+    app.set_error_dialog_summary("".into());
+    app.set_error_dialog_detail("".into());
+    app.set_error_dialog_log_path(display_path(&runtime_support::technical_log_path()).into());
     app.set_collection_status("Ready to create an evidence package.".into());
     app.set_collection_activity_summary("".into());
 
@@ -626,6 +708,11 @@ fn initialize_app(
     sync_technical_logs(app);
     apply_launch_overlays(app, state, options.screenshot_state);
     wire_callbacks(app, state);
+    if options.screenshot_state.is_none()
+        && let Err(error) = refresh_shadow_copy_recovery(app, state, true)
+    {
+        report_collection_error(app, "Shadow copy recovery check failed", &error);
+    }
     schedule_collection_drive_refresh(app.as_weak(), Arc::clone(state));
     schedule_collection_activity_pulse(app.as_weak());
     schedule_technical_log_refresh(app.as_weak());
@@ -642,6 +729,8 @@ fn apply_launch_overlays(
     app.set_about_open(false);
     app.set_evidence_scope_open(false);
     app.set_collection_usn_settings_open(false);
+    app.set_shadow_copy_recovery_open(false);
+    app.set_error_dialog_open(false);
     app.set_collection_running(false);
 
     match screenshot_state.unwrap_or(DesktopScreenshotState::Main) {
@@ -716,24 +805,258 @@ fn seed_collection_progress_overlay(app: &AppWindow, state: &Arc<Mutex<DesktopSt
     refresh_collection_activity(app, state);
 }
 
+fn guard_desktop_action<T>(operation: &str, action: impl FnOnce() -> Result<T>) -> Result<T> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(action)) {
+        Ok(result) => result,
+        Err(payload) => Err(anyhow!(
+            "{operation} panicked unexpectedly. {}",
+            panic_payload_message(payload)
+        )),
+    }
+}
+
+fn panic_payload_message(payload: Box<dyn Any + Send>) -> String {
+    let payload = match payload.downcast::<String>() {
+        Ok(message) => return *message,
+        Err(payload) => payload,
+    };
+
+    let payload = match payload.downcast::<&'static str>() {
+        Ok(message) => return (*message).to_string(),
+        Err(payload) => payload,
+    };
+
+    let _ = payload;
+    "Unknown panic payload.".to_string()
+}
+
+fn error_summary(error: &anyhow::Error) -> String {
+    error
+        .chain()
+        .next()
+        .map(|cause| cause.to_string())
+        .filter(|message| !message.trim().is_empty())
+        .unwrap_or_else(|| "The operation failed without an error message.".to_string())
+}
+
+fn format_error_details(error: &anyhow::Error) -> String {
+    let mut causes = error
+        .chain()
+        .map(|cause| cause.to_string())
+        .filter(|message| !message.trim().is_empty())
+        .collect::<Vec<_>>();
+
+    causes.dedup();
+
+    match causes.split_first() {
+        Some((primary, [])) => primary.clone(),
+        Some((primary, remaining)) => {
+            let mut detail = primary.clone();
+            detail.push_str("\n\nCaused by:");
+            for cause in remaining {
+                detail.push_str("\n- ");
+                detail.push_str(cause);
+            }
+            detail
+        }
+        None => "The operation failed without an error message.".to_string(),
+    }
+}
+
+fn show_error_dialog(app: &AppWindow, title: &str, summary: &str, detail: &str) {
+    app.set_error_dialog_title(title.into());
+    app.set_error_dialog_summary(summary.into());
+    app.set_error_dialog_detail(detail.into());
+    app.set_error_dialog_open(true);
+}
+
+fn report_collection_error(app: &AppWindow, title: &str, error: &anyhow::Error) {
+    let summary = error_summary(error);
+    let detail = format_error_details(error);
+
+    app.set_collection_status(title.into());
+    append_collection_log(app, &detail);
+    show_error_dialog(app, title, &summary, &detail);
+}
+
+fn report_parse_error(app: &AppWindow, title: &str, error: &anyhow::Error) {
+    let summary = error_summary(error);
+    let detail = format_error_details(error);
+
+    app.set_parse_status(title.into());
+    app.set_parse_summary(summary.clone().into());
+    append_parse_log(app, &detail);
+    show_error_dialog(app, title, &summary, &detail);
+}
+
+fn build_shadow_copy_recovery_summary(count: usize) -> String {
+    format!(
+        "Holo Forensics found {} previously tracked Volume Shadow {} that still exist. Keep them for reuse, or delete every recovered snapshot now.",
+        count,
+        if count == 1 { "Copy" } else { "Copies" }
+    )
+}
+
+fn tracked_shadow_copy_to_ui_item(entry: &vss::TrackedShadowCopy) -> ShadowCopyRecoveryItem {
+    ShadowCopyRecoveryItem {
+        volume: entry.volume.clone().into(),
+        created_at: entry.created_at.clone().into(),
+        shadow_id: entry.id.clone().into(),
+        device_object: entry.device_object.clone().into(),
+    }
+}
+
+fn refresh_shadow_copy_recovery(
+    app: &AppWindow,
+    state: &Arc<Mutex<DesktopState>>,
+    open_if_any: bool,
+) -> Result<()> {
+    let tracked_shadow_copies = vss::reconcile_tracked_shadow_copies()?;
+    {
+        let mut state_guard = state.lock().expect("desktop state poisoned");
+        state_guard.tracked_shadow_copies = tracked_shadow_copies.clone();
+    }
+
+    let items = tracked_shadow_copies
+        .iter()
+        .map(tracked_shadow_copy_to_ui_item)
+        .collect::<Vec<_>>();
+    app.set_shadow_copy_recovery_items(Rc::new(VecModel::from(items)).into());
+
+    if tracked_shadow_copies.is_empty() {
+        app.set_shadow_copy_recovery_summary("".into());
+        app.set_shadow_copy_recovery_open(false);
+        return Ok(());
+    }
+
+    app.set_shadow_copy_recovery_summary(
+        build_shadow_copy_recovery_summary(tracked_shadow_copies.len()).into(),
+    );
+    if open_if_any {
+        app.set_shadow_copy_recovery_open(true);
+    }
+    Ok(())
+}
+
+fn keep_tracked_shadow_copies(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
+    let count = {
+        let state_guard = state.lock().expect("desktop state poisoned");
+        state_guard.tracked_shadow_copies.len()
+    };
+    app.set_shadow_copy_recovery_open(false);
+    if count > 0 {
+        app.set_collection_status(
+            format!(
+                "Keeping {} recovered shadow {}.",
+                count,
+                pluralize(count, "copy", "copies")
+            )
+            .into(),
+        );
+        append_collection_log(
+            app,
+            &format!(
+                "Keeping {} tracked VSS shadow {} for possible reuse.",
+                count,
+                pluralize(count, "copy", "copies")
+            ),
+        );
+    }
+}
+
+fn delete_tracked_shadow_copies(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Result<()> {
+    let tracked_shadow_copies = {
+        let state_guard = state.lock().expect("desktop state poisoned");
+        state_guard.tracked_shadow_copies.clone()
+    };
+    if tracked_shadow_copies.is_empty() {
+        app.set_shadow_copy_recovery_open(false);
+        return Ok(());
+    }
+
+    let mut deleted = 0usize;
+    let mut failures = Vec::new();
+    for shadow_copy in &tracked_shadow_copies {
+        match vss::delete_shadow_copy(&shadow_copy.id) {
+            Ok(()) => deleted += 1,
+            Err(error) => failures.push(format!(
+                "{} on {}: {error:#}",
+                shadow_copy.id, shadow_copy.volume
+            )),
+        }
+    }
+
+    refresh_shadow_copy_recovery(app, state, !failures.is_empty())?;
+    if failures.is_empty() {
+        app.set_shadow_copy_recovery_open(false);
+        app.set_collection_status(
+            format!(
+                "Deleted {} recovered shadow {}.",
+                deleted,
+                pluralize(deleted, "copy", "copies")
+            )
+            .into(),
+        );
+        append_collection_log(
+            app,
+            &format!(
+                "Deleted {} tracked VSS shadow {} from the previous run.",
+                deleted,
+                pluralize(deleted, "copy", "copies")
+            ),
+        );
+        return Ok(());
+    }
+
+    Err(anyhow!(format!(
+        "Failed to delete {} recovered shadow {}.\n\n{}",
+        failures.len(),
+        pluralize(failures.len(), "copy", "copies"),
+        failures.join("\n")
+    )))
+}
+
 fn wire_callbacks(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
+    let keep_shadow_copies_app = app.as_weak();
+    let keep_shadow_copies_state = Arc::clone(state);
+    app.on_keep_shadow_copies_requested(move || {
+        let Some(app) = keep_shadow_copies_app.upgrade() else {
+            return;
+        };
+        keep_tracked_shadow_copies(&app, &keep_shadow_copies_state);
+    });
+
+    let delete_shadow_copies_app = app.as_weak();
+    let delete_shadow_copies_state = Arc::clone(state);
+    app.on_delete_shadow_copies_requested(move || {
+        let Some(app) = delete_shadow_copies_app.upgrade() else {
+            return;
+        };
+        if let Err(error) = guard_desktop_action("Delete recovered shadow copies", || {
+            delete_tracked_shadow_copies(&app, &delete_shadow_copies_state)
+        }) {
+            report_collection_error(&app, "Shadow copy cleanup failed", &error);
+        }
+    });
+
     let persist_app = app.as_weak();
     let persist_state = Arc::clone(state);
     app.on_persist_settings_requested(move || {
         let Some(app) = persist_app.upgrade() else {
             return;
         };
-        if let Err(error) = persist_settings(&app, &persist_state) {
-            app.set_parse_status("Settings save failed".into());
-            app.set_parse_summary(error.to_string().into());
-            return;
+        if let Err(error) = guard_desktop_action("Update desktop settings", || {
+            persist_settings(&app, &persist_state)?;
+            apply_collection_profile_from_app(&app, &persist_state);
+            refresh_collection_output_filename(&app);
+            refresh_collection_catalog(&app, &persist_state);
+            refresh_collection_drives(&app, &persist_state);
+            refresh_collection_activity(&app, &persist_state);
+            schedule_window_chrome_theme_refresh(app.as_weak());
+            Ok(())
+        }) {
+            report_collection_error(&app, "Settings update failed", &error);
         }
-        apply_collection_profile_from_app(&app, &persist_state);
-        refresh_collection_output_filename(&app);
-        refresh_collection_catalog(&app, &persist_state);
-        refresh_collection_drives(&app, &persist_state);
-        refresh_collection_activity(&app, &persist_state);
-        schedule_window_chrome_theme_refresh(app.as_weak());
     });
 
     let browse_collection_app = app.as_weak();
@@ -742,32 +1065,27 @@ fn wire_callbacks(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
         let Some(app) = browse_collection_app.upgrade() else {
             return;
         };
-        let default_dir = {
-            let state_guard = browse_collection_state
-                .lock()
-                .expect("desktop state poisoned");
-            default_collection_output_dir(&state_guard.project_root)
-        };
-        let current_dir = normalize_collection_output_dir(
-            app.get_collection_archive_path().as_ref(),
-            &default_dir,
-        );
-        match browse_for_directory(&current_dir) {
-            Ok(Some(path)) => {
+        if let Err(error) = guard_desktop_action("Update collection destination", || {
+            let default_dir = {
+                let state_guard = browse_collection_state
+                    .lock()
+                    .expect("desktop state poisoned");
+                default_collection_output_dir(&state_guard.project_root)
+            };
+            let current_dir = normalize_collection_output_dir(
+                app.get_collection_archive_path().as_ref(),
+                &default_dir,
+            );
+
+            if let Some(path) = browse_for_directory(&current_dir)? {
                 app.set_collection_archive_path(display_path(&path).into());
                 refresh_collection_output_filename(&app);
-                if let Err(error) = persist_settings(&app, &browse_collection_state) {
-                    app.set_collection_status("Destination save failed".into());
-                    append_collection_log(&app, &error.to_string());
-                } else {
-                    app.set_collection_status("Destination folder updated.".into());
-                }
+                persist_settings(&app, &browse_collection_state)?;
+                app.set_collection_status("Destination folder updated.".into());
             }
-            Ok(None) => {}
-            Err(error) => {
-                app.set_collection_status("Browse failed".into());
-                append_collection_log(&app, &error.to_string());
-            }
+            Ok(())
+        }) {
+            report_collection_error(&app, "Destination update failed", &error);
         }
     });
 
@@ -777,28 +1095,32 @@ fn wire_callbacks(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
         let Some(app) = select_drive_app.upgrade() else {
             return;
         };
-        let drives = available_collection_drives();
-        let selected_index = index.max(0) as usize;
-        if let Some(volume) = drives
-            .get(selected_index)
-            .map(|drive| drive.volume.clone())
-            .or_else(|| drives.first().map(|drive| drive.volume.clone()))
-        {
+        if let Err(error) = guard_desktop_action("Update selected collection source", || {
+            let drives = available_collection_drives();
+            let selected_index = index.max(0) as usize;
+            if let Some(volume) = drives
+                .get(selected_index)
+                .map(|drive| drive.volume.clone())
+                .or_else(|| drives.first().map(|drive| drive.volume.clone()))
             {
-                let mut state_guard = select_drive_state.lock().expect("desktop state poisoned");
-                toggle_selected_collection_volume(
-                    &mut state_guard.selected_collection_volumes,
-                    &volume,
-                    &drives,
-                );
+                {
+                    let mut state_guard = select_drive_state
+                        .lock()
+                        .expect("desktop state poisoned");
+                    toggle_selected_collection_volume(
+                        &mut state_guard.selected_collection_volumes,
+                        &volume,
+                        &drives,
+                    );
+                }
+                set_collection_runtime_phase(&select_drive_state, CollectionRuntimePhase::Idle);
+                refresh_collection_drives(&app, &select_drive_state);
+                refresh_collection_activity(&app, &select_drive_state);
+                persist_settings(&app, &select_drive_state)?;
             }
-            set_collection_runtime_phase(&select_drive_state, CollectionRuntimePhase::Idle);
-            refresh_collection_drives(&app, &select_drive_state);
-            refresh_collection_activity(&app, &select_drive_state);
-            if let Err(error) = persist_settings(&app, &select_drive_state) {
-                app.set_collection_status("Source volume save failed".into());
-                append_collection_log(&app, &error.to_string());
-            }
+            Ok(())
+        }) {
+            report_collection_error(&app, "Source volume update failed", &error);
         }
     });
 
@@ -808,25 +1130,30 @@ fn wire_callbacks(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
         let Some(app) = select_activity_app.upgrade() else {
             return;
         };
-        {
-            let mut state_guard = select_activity_state
-                .lock()
-                .expect("desktop state poisoned");
-            let drives = available_collection_drives();
-            let source_state =
-                collection_source_state(&state_guard.selected_collection_volumes, &drives);
-            let (records, _) = build_collection_activity_snapshot(
-                &state_guard.collection_catalog,
-                state_guard.collection_runtime_phase,
-                source_state.supported_volumes.len(),
-                source_state.unsupported_volumes.len(),
-                state_guard.collection_progress.as_ref(),
-            );
-            state_guard.selected_collection_activity_title = records
-                .get(index.max(0) as usize)
-                .map(|record| record.title.clone());
+        if let Err(error) = guard_desktop_action("Update collection activity detail", || {
+            {
+                let mut state_guard = select_activity_state
+                    .lock()
+                    .expect("desktop state poisoned");
+                let drives = available_collection_drives();
+                let source_state =
+                    collection_source_state(&state_guard.selected_collection_volumes, &drives);
+                let (records, _) = build_collection_activity_snapshot(
+                    &state_guard.collection_catalog,
+                    state_guard.collection_runtime_phase,
+                    source_state.supported_volumes.len(),
+                    source_state.unsupported_volumes.len(),
+                    state_guard.collection_progress.as_ref(),
+                );
+                state_guard.selected_collection_activity_title = records
+                    .get(index.max(0) as usize)
+                    .map(|record| record.title.clone());
+            }
+            refresh_collection_activity(&app, &select_activity_state);
+            Ok(())
+        }) {
+            report_collection_error(&app, "Collection activity update failed", &error);
         }
-        refresh_collection_activity(&app, &select_activity_state);
     });
 
     let inspect_app = app.as_weak();
@@ -835,9 +1162,10 @@ fn wire_callbacks(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
         let Some(app) = inspect_app.upgrade() else {
             return;
         };
-        if let Err(error) = start_archive_inspection(&app, &inspect_state) {
-            app.set_parse_status("Inspection failed".into());
-            app.set_parse_summary(error.to_string().into());
+        if let Err(error) = guard_desktop_action("Start archive inspection", || {
+            start_archive_inspection(&app, &inspect_state)
+        }) {
+            report_parse_error(&app, "Inspection failed", &error);
         }
     });
 
@@ -847,11 +1175,10 @@ fn wire_callbacks(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
         let Some(app) = select_collection_app.upgrade() else {
             return;
         };
-        if let Err(error) =
+        if let Err(error) = guard_desktop_action("Update collection brief", || {
             select_collection_catalog_item(&app, &select_collection_state, index.max(0) as usize)
-        {
-            app.set_collection_status("Collection brief update failed".into());
-            append_collection_log(&app, &error.to_string());
+        }) {
+            report_collection_error(&app, "Collection brief update failed", &error);
         }
     });
 
@@ -861,11 +1188,10 @@ fn wire_callbacks(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
         let Some(app) = select_all_collections_app.upgrade() else {
             return;
         };
-        if let Err(error) =
+        if let Err(error) = guard_desktop_action("Select all collection surfaces", || {
             set_all_collection_catalog_items(&app, &select_all_collections_state, true)
-        {
-            app.set_collection_status("Collection scope update failed".into());
-            append_collection_log(&app, &error.to_string());
+        }) {
+            report_collection_error(&app, "Collection scope update failed", &error);
         }
     });
 
@@ -875,11 +1201,10 @@ fn wire_callbacks(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
         let Some(app) = deselect_all_collections_app.upgrade() else {
             return;
         };
-        if let Err(error) =
+        if let Err(error) = guard_desktop_action("Deselect all collection surfaces", || {
             set_all_collection_catalog_items(&app, &deselect_all_collections_state, false)
-        {
-            app.set_collection_status("Collection scope update failed".into());
-            append_collection_log(&app, &error.to_string());
+        }) {
+            report_collection_error(&app, "Collection scope update failed", &error);
         }
     });
 
@@ -889,9 +1214,10 @@ fn wire_callbacks(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
         let Some(app) = toggle_app.upgrade() else {
             return;
         };
-        if let Err(error) = toggle_detected_plan(&app, &toggle_state, index.max(0) as usize) {
-            app.set_parse_status("Selection update failed".into());
-            app.set_parse_summary(error.to_string().into());
+        if let Err(error) = guard_desktop_action("Update parse selection", || {
+            toggle_detected_plan(&app, &toggle_state, index.max(0) as usize)
+        }) {
+            report_parse_error(&app, "Selection update failed", &error);
         }
     });
 
@@ -901,9 +1227,10 @@ fn wire_callbacks(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
         let Some(app) = run_parse_app.upgrade() else {
             return;
         };
-        if let Err(error) = start_parse_run(&app, &run_parse_state) {
-            app.set_parse_status("Parse request failed".into());
-            app.set_parse_summary(error.to_string().into());
+        if let Err(error) = guard_desktop_action("Start parse request", || {
+            start_parse_run(&app, &run_parse_state)
+        }) {
+            report_parse_error(&app, "Parse request failed", &error);
         }
     });
 
@@ -913,9 +1240,10 @@ fn wire_callbacks(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
         let Some(app) = run_collection_app.upgrade() else {
             return;
         };
-        if let Err(error) = start_collection_run(&app, &run_collection_state) {
-            app.set_collection_status(error.to_string().into());
-            append_collection_log(&app, &error.to_string());
+        if let Err(error) = guard_desktop_action("Start collection request", || {
+            start_collection_run(&app, &run_collection_state)
+        }) {
+            report_collection_error(&app, "Collection request failed", &error);
         }
     });
 }
@@ -965,59 +1293,61 @@ fn start_collection_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Re
     std::thread::spawn(move || {
         let ui_for_events = ui.clone();
         let state_for_events = Arc::clone(&state_for_ui);
-        let result = app::collect_collection_archive_with_reporter(
-            &app::CollectionArchiveRequest {
-                volumes: request.volumes.clone(),
-                output_zip: request.output_zip.clone(),
-                staging_root: Some(staging_root),
-                usn: request.collect_usn.then_some(app::UsnCollectionOptions {
-                    mode: request.mode,
-                    sparse: request.sparse,
-                    chunk_size_mib: request.chunk_size_mib,
-                    elevate: request.elevate,
-                }),
-                registry: request
-                    .collect_registry
-                    .then_some(app::RegistryCollectionOptions {
-                        method: registry::RegistryCollectMethod::VssSnapshot,
+        let result = guard_desktop_action("Run collection workflow", || {
+            app::collect_collection_archive_with_reporter(
+                &app::CollectionArchiveRequest {
+                    volumes: request.volumes.clone(),
+                    output_zip: request.output_zip.clone(),
+                    staging_root: Some(staging_root),
+                    usn: request.collect_usn.then_some(app::UsnCollectionOptions {
+                        mode: request.mode,
+                        sparse: request.sparse,
+                        chunk_size_mib: request.chunk_size_mib,
                         elevate: request.elevate,
                     }),
-                evtx: request.collect_evtx.then_some(app::EvtxCollectionOptions {
-                    elevate: request.elevate,
-                }),
-                srum: request.collect_srum.then_some(app::SrumCollectionOptions {
-                    elevate: request.elevate,
-                }),
-                browser_artifacts: request.collect_browser_artifacts.then_some(
-                    app::BrowserArtifactsCollectionOptions {
-                        elevate: request.elevate,
-                    },
-                ),
-                mft: request.collect_mft.then_some(app::MftCollectionOptions {
-                    mode: mft::MftAcquisitionMode::Vss,
-                    elevate: request.elevate,
-                }),
-                logfile: request
-                    .collect_logfile
-                    .then_some(app::LogFileCollectionOptions {
-                        mode: logfile::LogFileAcquisitionMode::Vss,
+                    registry: request
+                        .collect_registry
+                        .then_some(app::RegistryCollectionOptions {
+                            method: registry::RegistryCollectMethod::VssSnapshot,
+                            elevate: request.elevate,
+                        }),
+                    evtx: request.collect_evtx.then_some(app::EvtxCollectionOptions {
                         elevate: request.elevate,
                     }),
-                indx: request.collect_indx.then_some(app::IndxCollectionOptions {
-                    mode: indx::IndxAcquisitionMode::Vss,
-                    include_deleted_dirs: false,
-                    max_directories: None,
-                    elevate: request.elevate,
-                }),
-            },
-            &mut |event| {
-                dispatch_collection_event(
-                    ui_for_events.clone(),
-                    Arc::clone(&state_for_events),
-                    event,
-                )
-            },
-        );
+                    srum: request.collect_srum.then_some(app::SrumCollectionOptions {
+                        elevate: request.elevate,
+                    }),
+                    browser_artifacts: request.collect_browser_artifacts.then_some(
+                        app::BrowserArtifactsCollectionOptions {
+                            elevate: request.elevate,
+                        },
+                    ),
+                    mft: request.collect_mft.then_some(app::MftCollectionOptions {
+                        mode: mft::MftAcquisitionMode::Vss,
+                        elevate: request.elevate,
+                    }),
+                    logfile: request
+                        .collect_logfile
+                        .then_some(app::LogFileCollectionOptions {
+                            mode: logfile::LogFileAcquisitionMode::Vss,
+                            elevate: request.elevate,
+                        }),
+                    indx: request.collect_indx.then_some(app::IndxCollectionOptions {
+                        mode: indx::IndxAcquisitionMode::Vss,
+                        include_deleted_dirs: false,
+                        max_directories: None,
+                        elevate: request.elevate,
+                    }),
+                },
+                &mut |event| {
+                    dispatch_collection_event(
+                        ui_for_events.clone(),
+                        Arc::clone(&state_for_events),
+                        event,
+                    )
+                },
+            )
+        });
 
         let _ = slint::invoke_from_event_loop(move || {
             let Some(app) = ui.upgrade() else {
@@ -1057,8 +1387,7 @@ fn start_collection_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Re
                 }
                 Err(error) => {
                     set_collection_runtime_phase(&state_for_ui, CollectionRuntimePhase::Failed);
-                    app.set_collection_status("Collection failed".into());
-                    append_collection_log(&app, &error.to_string());
+                    report_collection_error(&app, "Collection failed", &error);
                 }
             }
             refresh_collection_activity(&app, &state_for_ui);
@@ -1104,13 +1433,15 @@ fn start_archive_inspection_for_input(
     append_parse_log(app, &format!("Inspect {}", display_path(&input)));
 
     std::thread::spawn(move || {
-        let result = app::inspect_parse_archive(
-            &input_for_thread,
-            app::ParseInspectionOptions {
-                project_root: Some(project_root.clone()),
-                extraction_root: Some(inspection_root),
-            },
-        );
+        let result = guard_desktop_action("Inspect collection archive", || {
+            app::inspect_parse_archive(
+                &input_for_thread,
+                app::ParseInspectionOptions {
+                    project_root: Some(project_root.clone()),
+                    extraction_root: Some(inspection_root),
+                },
+            )
+        });
 
         let _ = slint::invoke_from_event_loop(move || {
             let Some(app) = ui.upgrade() else {
@@ -1140,9 +1471,7 @@ fn start_archive_inspection_for_input(
                 Err(error) => {
                     replace_detected_plans(&state_for_ui, Vec::new());
                     refresh_detected_plans(&app, &state_for_ui);
-                    app.set_parse_status("Inspection failed".into());
-                    app.set_parse_summary(error.to_string().into());
-                    append_parse_log(&app, &error.to_string());
+                    report_parse_error(&app, "Inspection failed", &error);
                 }
             }
         });
@@ -1191,22 +1520,24 @@ fn start_parse_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Result<
     std::thread::spawn(move || {
         let mut tracker = ProgressTracker::new();
         let ui_for_events = ui.clone();
-        let result = app::run_parse_request(
-            ParseCli {
-                input: Some(request.input.clone()),
-                output: request.output.clone(),
-                opensearch_url: request.opensearch_url.clone(),
-                opensearch_username: request.opensearch_username.clone(),
-                opensearch_password: request.opensearch_password.clone(),
-                opensearch_index: request.opensearch_index.clone(),
-                opensearch_insecure: request.opensearch_insecure,
-            },
-            ParseRunOptions {
-                project_root: Some(project_root),
-                selected_plan_ids: Some(request.selected_plan_ids.clone()),
-            },
-            |event| dispatch_parse_event(ui_for_events.clone(), &mut tracker, event),
-        );
+        let result = guard_desktop_action("Run parse workflow", || {
+            app::run_parse_request(
+                ParseCli {
+                    input: Some(request.input.clone()),
+                    output: request.output.clone(),
+                    opensearch_url: request.opensearch_url.clone(),
+                    opensearch_username: request.opensearch_username.clone(),
+                    opensearch_password: request.opensearch_password.clone(),
+                    opensearch_index: request.opensearch_index.clone(),
+                    opensearch_insecure: request.opensearch_insecure,
+                },
+                ParseRunOptions {
+                    project_root: Some(project_root),
+                    selected_plan_ids: Some(request.selected_plan_ids.clone()),
+                },
+                |event| dispatch_parse_event(ui_for_events.clone(), &mut tracker, event),
+            )
+        });
 
         let _ = slint::invoke_from_event_loop(move || {
             let Some(app) = ui.upgrade() else {
@@ -1231,9 +1562,7 @@ fn start_parse_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Result<
                     );
                 }
                 Err(error) => {
-                    app.set_parse_status("Parse failed".into());
-                    app.set_parse_summary(error.to_string().into());
-                    append_parse_log(&app, &error.to_string());
+                    report_parse_error(&app, "Parse failed", &error);
                 }
             }
         });
@@ -3773,7 +4102,7 @@ fn browse_for_directory_windows(initial_dir: &Path) -> Result<Option<PathBuf>> {
         }
     }
 
-    match unsafe { dialog.Show(HWND(std::ptr::null_mut())) } {
+    match unsafe { dialog.Show(None) } {
         Ok(()) => {
             let selected_item = unsafe { dialog.GetResult() }.context("read selected folder")?;
             let selected_name = unsafe { selected_item.GetDisplayName(SIGDN_FILESYSPATH) }
@@ -4190,11 +4519,15 @@ fn display_path(path: &Path) -> String {
 mod tests {
     use std::collections::BTreeMap;
 
+    use anyhow::anyhow;
+
     use super::{
         CollectionActivityTone, CollectionCatalogRecord, CollectionCollectorProgress,
         CollectionDriveRecord, CollectionProgressState, CollectionRuntimePhase,
         build_collection_activity_details, build_collection_activity_snapshot,
-        build_collection_catalog_records, collection_source_state,
+        build_collection_catalog_records, build_startup_error_dialog_body,
+        collection_source_state, format_error_details, guard_desktop_action,
+        panic_payload_message,
         normalized_selected_volumes_or_default,
     };
 
@@ -4632,5 +4965,52 @@ mod tests {
             state.summary,
             "1 selected source ready. Some artifacts will be skipped on E: (exFAT)."
         );
+    }
+
+    #[test]
+    fn format_error_details_includes_cause_chain() {
+        let error = anyhow!("The system cannot find the path specified.")
+            .context("create collection output parent E:\\Evidence Locker");
+
+        let detail = format_error_details(&error);
+
+        assert!(detail.contains("create collection output parent E:\\Evidence Locker"));
+        assert!(detail.contains("Caused by:"));
+        assert!(detail.contains("The system cannot find the path specified."));
+    }
+
+    #[test]
+    fn panic_payload_message_prefers_string_payloads() {
+        assert_eq!(
+            panic_payload_message(Box::new(String::from("boom"))),
+            "boom"
+        );
+    }
+
+    #[test]
+    fn guard_desktop_action_turns_panics_into_errors() {
+        let error = guard_desktop_action("Run parse workflow", || -> anyhow::Result<()> {
+            panic!("unexpected parse state");
+        })
+        .expect_err("panic should be surfaced as an error");
+
+        let detail = format_error_details(&error);
+
+        assert!(detail.contains("Run parse workflow panicked unexpectedly."));
+        assert!(detail.contains("unexpected parse state"));
+    }
+
+    #[test]
+    fn startup_error_dialog_body_includes_detail_and_log_hint() {
+        let body = build_startup_error_dialog_body(
+            "The desktop UI failed during startup.",
+            "Launch desktop UI panicked unexpectedly. boom",
+            Some(r"C:\Users\Analyst\.holo-forensics\holo-forensics.log"),
+        );
+
+        assert!(body.contains("The desktop UI failed during startup."));
+        assert!(body.contains("Details:"));
+        assert!(body.contains("Launch desktop UI panicked unexpectedly. boom"));
+        assert!(body.contains(r"C:\Users\Analyst\.holo-forensics\holo-forensics.log"));
     }
 }
