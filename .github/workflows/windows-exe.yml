@@ -180,6 +180,9 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
       - name: Download EXE artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -192,10 +195,22 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          RELEASE_TITLE="Holo Forensics ${RELEASE_TAG}"
+          NOTES_FILE=".github/release-notes/${RELEASE_TAG}.md"
+
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             gh release upload "${RELEASE_TAG}" release-artifacts/* --clobber
+            if [ -f "${NOTES_FILE}" ]; then
+              gh release edit "${RELEASE_TAG}" \
+                --title "${RELEASE_TITLE}" \
+                --notes-file "${NOTES_FILE}"
+            fi
+          elif [ -f "${NOTES_FILE}" ]; then
+            gh release create "${RELEASE_TAG}" release-artifacts/* \
+              --title "${RELEASE_TITLE}" \
+              --notes-file "${NOTES_FILE}"
           else
             gh release create "${RELEASE_TAG}" release-artifacts/* \
-              --title "Holo Forensics ${RELEASE_TAG}" \
+              --title "${RELEASE_TITLE}" \
               --generate-notes
           fi

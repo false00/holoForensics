@@ -32,3 +32,11 @@ This file is the canonical assistant-facing instruction surface for this reposit
 - The same hook runs `cargo fmt --check` for Rust changes before assistant-run commits and pushes.
 - The same hook runs `cargo test --locked` before assistant-run pushes that include code, build, or UI changes.
 - If the hook blocks a commit or push, surface the failure reason, fix it locally, and retry instead of bypassing the guard.
+
+## Release Workflow
+
+- When the user asks to release, increment the application version before committing. If the user does not specify a target version, advance to the next patch release.
+- Prepare the release changelog in-repo so the published GitHub release body is explicit instead of relying only on generated notes.
+- If the user asks to review the release copy before publishing, stop after drafting the version bump and changelog and wait for approval before any push.
+- Once the release is approved, commit the release changes, push `main`, create or update the matching `vX.Y.Z` git tag, and push that tag so the release workflow publishes the release.
+- Treat an explicit user request to release as approval to perform the required commit, `main` push, and release-tag push sequence after any requested review checkpoint is complete.
