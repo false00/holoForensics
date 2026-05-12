@@ -22,6 +22,7 @@ export component AppWindow inherits Window {
     default-font-family: "Figtree";
     default-font-size: 14px;
 
+    in property <string> app-version;
     in-out property <int> collection-profile: 0;
     in-out property <string> collection-archive-path;
     in-out property <string> collection-output-filename;
@@ -94,6 +95,7 @@ export component AppWindow inherits Window {
     callback run-collection-requested();
     callback keep-shadow-copies-requested();
     callback delete-shadow-copies-requested();
+    callback open-developer-repo-requested();
 
     Rectangle {
         width: root.width;
@@ -163,7 +165,9 @@ export component AppWindow inherits Window {
         if root.about-open : AboutDialog {
             width: parent.width;
             height: parent.height;
+            version: root.app-version;
             close-requested => { root.about-open = false; }
+            open-developer-repo-requested => { root.open-developer-repo-requested(); }
         }
 
         if root.shadow-copy-recovery-open : ShadowCopyRecoveryDialog {

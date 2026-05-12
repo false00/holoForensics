@@ -39,10 +39,10 @@ use windows::{
         UI::Shell::{
             FOS_FORCEFILESYSTEM, FOS_NOCHANGEDIR, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS,
             FileOpenDialog, IFileOpenDialog, IShellItem, SHCreateItemFromParsingName,
-            SIGDN_FILESYSPATH,
+            SIGDN_FILESYSPATH, ShellExecuteW,
         },
         UI::WindowsAndMessaging::{
-            MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MB_TASKMODAL, MessageBoxW,
+            MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MB_TASKMODAL, MessageBoxW, SW_SHOWNORMAL,
         },
     },
     core::{BOOL, Error as WindowsError, HSTRING, PCWSTR, w},
@@ -70,6 +70,7 @@ const TRIAGE_COLLECTION_TITLES: &[&str] = &[
     "USB and External Devices",
 ];
 const DEFAULT_COLLECTION_USN_CHUNK_INDEX: i32 = 1;
+const FALSE00_REPOSITORY_URL: &str = "https://github.com/false00/holoForensics";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DesktopLaunchOptions {
@@ -663,6 +664,7 @@ fn initialize_app(
     }
 
     app.set_collection_profile(settings.collection_profile.clamp(0, 2));
+    app.set_app_version(env!("CARGO_PKG_VERSION").into());
     app.set_collection_archive_path(display_path(&collection_output_dir).into());
     refresh_collection_output_filename(app);
     app.set_collection_usn_mode(settings.collection_usn_mode.clamp(0, 2));
@@ -877,6 +879,14 @@ fn report_collection_error(app: &AppWindow, title: &str, error: &anyhow::Error) 
     show_error_dialog(app, title, &summary, &detail);
 }
 
+fn report_ui_error(app: &AppWindow, title: &str, error: &anyhow::Error) {
+    let summary = error_summary(error);
+    let detail = format_error_details(error);
+
+    append_technical_log(app, "desktop-ui", &format!("{title}: {detail}"));
+    show_error_dialog(app, title, &summary, &detail);
+}
+
 fn report_parse_error(app: &AppWindow, title: &str, error: &anyhow::Error) {
     let summary = error_summary(error);
     let detail = format_error_details(error);
@@ -1054,6 +1064,18 @@ fn wire_callbacks(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
             Ok(())
         }) {
             report_collection_error(&app, "Settings update failed", &error);
+        }
+    });
+
+    let open_developer_repo_app = app.as_weak();
+    app.on_open_developer_repo_requested(move || {
+        let Some(app) = open_developer_repo_app.upgrade() else {
+            return;
+        };
+        if let Err(error) = guard_desktop_action("Open developer repository", || {
+            open_external_url(FALSE00_REPOSITORY_URL)
+        }) {
+            report_ui_error(&app, "Open repository failed", &error);
         }
     });
 
@@ -4058,6 +4080,43 @@ fn browse_for_directory(initial_dir: &Path) -> Result<Option<PathBuf>> {
             "native destination folder picker is only implemented on Windows"
         ))
     }
+}
+
+fn open_external_url(url: &str) -> Result<()> {
+    #[cfg(windows)]
+    {
+        return open_external_url_windows(url);
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = url;
+        Err(anyhow!(
+            "opening external links is only implemented on Windows"
+        ))
+    }
+}
+
+#[cfg(windows)]
+fn open_external_url_windows(url: &str) -> Result<()> {
+    let operation = HSTRING::from("open");
+    let target = HSTRING::from(url);
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR(operation.as_ptr()),
+            PCWSTR(target.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+
+    if result.0 as isize <= 32 {
+        return Err(anyhow!("launch browser for {url}"));
+    }
+
+    Ok(())
 }
 
 #[cfg(windows)]

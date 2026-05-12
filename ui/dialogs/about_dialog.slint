@@ -2,7 +2,9 @@ import { ThemeTokens } from "../theme.slint";
 import { CardPanel, CodexBand, GhostButton, HelperText, SectionLabel } from "../components.slint";
 
 export component AboutDialog inherits Rectangle {
+    in property <string> version;
     callback close-requested();
+    callback open-developer-repo-requested();
 
     background: ThemeTokens.overlay;
 
@@ -72,7 +74,7 @@ export component AboutDialog inherits Rectangle {
 
                         Text {
                             horizontal-stretch: 1;
-                            text: "0.1.0";
+                            text: root.version;
                             color: ThemeTokens.text;
                             font-family: "Figtree";
                             font-size: 13px;
@@ -91,14 +93,46 @@ export component AboutDialog inherits Rectangle {
                             vertical-alignment: center;
                         }
 
-                        Text {
+                        Rectangle {
                             horizontal-stretch: 1;
-                            text: "false00";
-                            color: ThemeTokens.text;
-                            font-family: "Figtree";
-                            font-size: 13px;
-                            font-weight: 500;
-                            vertical-alignment: center;
+                            height: parent.height;
+                            border-radius: ThemeTokens.radius-small;
+                            border-width: 1px;
+                            border-color: repo-link.has-hover ? ThemeTokens.primary.with-alpha(0.42) : transparent;
+                            background: repo-link.has-hover ? ThemeTokens.accent-soft : transparent;
+                            animate background { duration: 100ms; }
+                            animate border-color { duration: 100ms; }
+
+                            HorizontalLayout {
+                                width: parent.width;
+                                height: parent.height;
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 12px;
+
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: "false00";
+                                    color: repo-link.has-hover ? ThemeTokens.primary-hover : ThemeTokens.primary;
+                                    font-family: "Figtree";
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    vertical-alignment: center;
+                                }
+
+                                HelperText {
+                                    width: 72px;
+                                    text: "GitHub repo";
+                                    vertical-alignment: center;
+                                    horizontal-alignment: right;
+                                }
+                            }
+
+                            repo-link := TouchArea {
+                                width: parent.width;
+                                height: parent.height;
+                                clicked => { root.open-developer-repo-requested(); }
+                            }
                         }
                     }
                 }
