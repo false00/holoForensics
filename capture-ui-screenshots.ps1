@@ -3,6 +3,7 @@ param(
     [string[]]$States = @("main", "collection-progress", "settings", "about", "scope", "usn-settings"),
     [ValidateSet("system", "light", "dark")]
     [string]$Theme = "system",
+    [int]$TrimMargin = 0,
     [switch]$SkipBuild
 )
 
@@ -80,6 +81,27 @@ function Get-WindowBounds([IntPtr]$Handle) {
     }
 }
 
+function Get-ClientBounds([IntPtr]$Handle) {
+    $clientRect = New-Object Win32UiCapture+RECT
+    if (-not [Win32UiCapture]::GetClientRect($Handle, [ref]$clientRect)) {
+        throw "Failed to read client bounds."
+    }
+
+    $topLeft = New-Object Win32UiCapture+POINT
+    $topLeft.X = 0
+    $topLeft.Y = 0
+    if (-not [Win32UiCapture]::ClientToScreen($Handle, [ref]$topLeft)) {
+        throw "Failed to convert client origin to screen coordinates."
+    }
+
+    [pscustomobject]@{
+        X = $topLeft.X
+        Y = $topLeft.Y
+        Width = $clientRect.Right - $clientRect.Left
+        Height = $clientRect.Bottom - $clientRect.Top
+    }
+}
+
 function Wait-LargeWindow($Process) {
     for ($i = 0; $i -lt 80; $i++) {
         Start-Sleep -Milliseconds 250
@@ -109,7 +131,20 @@ function Move-WindowIntoView([IntPtr]$Handle) {
 }
 
 function Save-WindowScreenshot([IntPtr]$Handle, [string]$Name) {
-    $bounds = Get-WindowBounds $Handle
+    $bounds = Get-ClientBounds $Handle
+
+    if ($TrimMargin -gt 0) {
+        $maxHorizontalTrim = [Math]::Max(0, [int](($bounds.Width - 1) / 2))
+        $maxVerticalTrim = [Math]::Max(0, [int](($bounds.Height - 1) / 2))
+        $appliedTrim = [Math]::Min($TrimMargin, [Math]::Min($maxHorizontalTrim, $maxVerticalTrim))
+        $bounds = [pscustomobject]@{
+            X = $bounds.X + $appliedTrim
+            Y = $bounds.Y + $appliedTrim
+            Width = $bounds.Width - ($appliedTrim * 2)
+            Height = $bounds.Height - ($appliedTrim * 2)
+        }
+    }
+
     if ($bounds.Width -le 0 -or $bounds.Height -le 0) {
         throw "Window bounds were empty for $Name."
     }
@@ -133,7 +168,7 @@ function Save-WindowScreenshot([IntPtr]$Handle, [string]$Name) {
     Get-Item $path | Select-Object Name, Length, FullName
 }
 
-function Scroll-WindowDown([IntPtr]$Handle) {
+function Invoke-WindowScrollDown([IntPtr]$Handle) {
     $bounds = Get-WindowBounds $Handle
     $x = $bounds.X + [int]($bounds.Width / 2)
     $y = $bounds.Y + [int]($bounds.Height / 2)
@@ -157,10 +192,10 @@ function Invoke-Capture([string]$State) {
         Start-Sleep -Milliseconds 1200
         Save-WindowScreenshot $handle $State
         if ($State -eq "collection-progress") {
-            Scroll-WindowDown $handle
+            Invoke-WindowScrollDown $handle
             Start-Sleep -Milliseconds 500
             Save-WindowScreenshot $handle "$State-details"
-            Scroll-WindowDown $handle
+            Invoke-WindowScrollDown $handle
             Start-Sleep -Milliseconds 500
             Save-WindowScreenshot $handle "$State-detail-items"
         }

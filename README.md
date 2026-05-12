@@ -6,7 +6,11 @@
 
 Consistent Windows forensic collection and offline artifact parsing in one Rust codebase.
 
-![Holo Forensics desktop collection setup](assets/screenshots/holo-forensics-collection-ready.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/holo-forensics-collection-ready-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/screenshots/holo-forensics-collection-ready-light.png">
+  <img src="assets/screenshots/holo-forensics-collection-ready-light.png" alt="Holo Forensics desktop collection setup">
+</picture>
 
 Holo Forensics is a Windows-first forensic workbench for two jobs investigators perform repeatedly: collecting live evidence into a stable package, and parsing supported evidence into reviewable JSONL.
 
@@ -31,13 +35,21 @@ If you want source-build, CLI, or lab-validation details, use the [wiki home tec
 
 The desktop UI gives analysts a focused Windows collection workflow with source selection, scope review, package destination, live collector status, and artifact-level progress.
 
-![Holo Forensics evidence scope review](assets/screenshots/holo-forensics-scope-review.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/holo-forensics-scope-review-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/screenshots/holo-forensics-scope-review-light.png">
+  <img src="assets/screenshots/holo-forensics-scope-review-light.png" alt="Holo Forensics evidence scope review">
+</picture>
 
 The scope dialog makes it clear which evidence groups are live today, which are planned, and where tuneable collection options exist before you start acquisition.
 
 ## Desktop UI Preview
 
-![Holo Forensics desktop collection progress](assets/screenshots/holo-forensics-collection-progress.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/holo-forensics-collection-progress-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/screenshots/holo-forensics-collection-progress-light.png">
+  <img src="assets/screenshots/holo-forensics-collection-progress-light.png" alt="Holo Forensics desktop collection progress">
+</picture>
 
 The collection view is built for Windows acquisition: choose a source volume, confirm the scope, set the package destination, and watch each collector move from queued to staged or complete.
 
