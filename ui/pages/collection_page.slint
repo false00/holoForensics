@@ -398,6 +398,8 @@ export component CollectionPage inherits Rectangle {
     in-out property <int> collection-profile: 0;
     in property <string> collection-archive-path;
     in property <string> collection-output-filename;
+    in property <string> collection-host-platform;
+    in property <string> collection-host-hardware;
     in property <[DriveItem]> collection-drives;
     in property <bool> collection-source-supported: true;
     in property <string> collection-source-summary;
@@ -548,7 +550,7 @@ export component CollectionPage inherits Rectangle {
                     y: root.compact-layout ? 18px : 12px;
                     width: max(120px, parent.width - (root.compact-layout ? 290px : 304px));
                     height: 14px;
-                    text: "WINDOWS FORENSIC COLLECTION";
+                    text: root.collection-host-platform == "" ? "Host metadata unavailable" : root.collection-host-platform;
                     color: ThemeTokens.muted;
                 }
 
@@ -571,7 +573,7 @@ export component CollectionPage inherits Rectangle {
                     y: root.compact-layout ? 58px : 48px;
                     width: max(140px, parent.width - (root.compact-layout ? 290px : 304px));
                     height: 16px;
-                    text: "Choose source, scope, and destination.";
+                    text: root.collection-host-hardware == "" ? "CPU and memory details unavailable." : root.collection-host-hardware;
                     color: ThemeTokens.muted;
                     font-family: "Figtree";
                     font-size: 12px;

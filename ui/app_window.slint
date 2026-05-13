@@ -26,6 +26,8 @@ export component AppWindow inherits Window {
     in-out property <int> collection-profile: 0;
     in-out property <string> collection-archive-path;
     in-out property <string> collection-output-filename;
+    in property <string> collection-host-platform;
+    in property <string> collection-host-hardware;
     in property <[DriveItem]> collection-drives;
     in-out property <bool> collection-source-supported: true;
     in-out property <string> collection-source-summary;
@@ -108,6 +110,8 @@ export component AppWindow inherits Window {
             collection-profile <=> root.collection-profile;
             collection-archive-path: root.collection-archive-path;
             collection-output-filename: root.collection-output-filename;
+            collection-host-platform: root.collection-host-platform;
+            collection-host-hardware: root.collection-host-hardware;
             collection-drives: root.collection-drives;
             collection-source-supported: root.collection-source-supported;
             collection-source-summary: root.collection-source-summary;

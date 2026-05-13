@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, hash_map::DefaultHasher};
 use std::env;
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::mem::size_of_val;
+use std::mem::{size_of, size_of_val};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -25,7 +25,7 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 #[cfg(windows)]
 use windows::{
     Win32::{
-        Foundation::{E_ABORT, ERROR_SUCCESS, HWND},
+        Foundation::{E_ABORT, ERROR_SUCCESS, HWND, NTSTATUS},
         Graphics::Dwm::{
             DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE,
             DwmSetWindowAttribute,
@@ -35,7 +35,12 @@ use windows::{
             CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
             CoTaskMemFree, CoUninitialize,
         },
-        System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW},
+        System::Registry::{
+            HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegGetValueW,
+        },
+        System::SystemInformation::{
+            GetPhysicallyInstalledSystemMemory, GetSystemFirmwareTable, OSVERSIONINFOW, RSMB,
+        },
         UI::Shell::{
             FOS_FORCEFILESYSTEM, FOS_NOCHANGEDIR, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS,
             FileOpenDialog, IFileOpenDialog, IShellItem, SHCreateItemFromParsingName,
@@ -49,6 +54,12 @@ use windows::{
 };
 
 slint::include_modules!();
+
+#[cfg(windows)]
+#[link(name = "ntdll")]
+unsafe extern "system" {
+    fn RtlGetVersion(lpversioninformation: *mut OSVERSIONINFOW) -> NTSTATUS;
+}
 
 const FIGTREE_REGULAR: &[u8] = include_bytes!("../assets/fonts/Figtree-Regular.ttf");
 const FIGTREE_MEDIUM: &[u8] = include_bytes!("../assets/fonts/Figtree-Medium.ttf");
@@ -75,6 +86,12 @@ const TRIAGE_COLLECTION_TITLES: &[&str] = &[
 ];
 const DEFAULT_COLLECTION_USN_CHUNK_INDEX: i32 = 1;
 const FALSE00_REPOSITORY_URL: &str = "https://github.com/false00/holoForensics";
+
+#[derive(Debug, Clone, Default)]
+struct CollectionHostProfile {
+    platform: String,
+    hardware: String,
+}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DesktopLaunchOptions {
@@ -654,6 +671,7 @@ fn initialize_app(
             .map(DesktopThemeOverride::to_theme_mode)
             .unwrap_or_else(|| settings.theme_mode.clamp(0, 2)),
     );
+    let host_profile = detect_collection_host_profile();
 
     let drives = available_collection_drives();
     let collection_volumes =
@@ -677,6 +695,8 @@ fn initialize_app(
     app.set_collection_profile(settings.collection_profile.clamp(0, 2));
     app.set_app_version(env!("CARGO_PKG_VERSION").into());
     app.set_collection_archive_path(display_path(&collection_output_dir).into());
+    app.set_collection_host_platform(host_profile.platform.into());
+    app.set_collection_host_hardware(host_profile.hardware.into());
     refresh_collection_output_filename(app);
     apply_screenshot_safe_collection_defaults(app, options.screenshot_state);
     app.set_collection_usn_mode(settings.collection_usn_mode.clamp(0, 2));
@@ -3891,6 +3911,313 @@ fn detect_system_dark_platform() -> Option<bool> {
     None
 }
 
+fn detect_collection_host_profile() -> CollectionHostProfile {
+    detect_collection_host_profile_platform().unwrap_or_default()
+}
+
+#[cfg(windows)]
+fn detect_collection_host_profile_platform() -> Option<CollectionHostProfile> {
+    Some(CollectionHostProfile {
+        platform: detect_windows_platform_banner().unwrap_or_default(),
+        hardware: detect_windows_hardware_banner().unwrap_or_default(),
+    })
+}
+
+#[cfg(not(windows))]
+fn detect_collection_host_profile_platform() -> Option<CollectionHostProfile> {
+    None
+}
+
+#[cfg(windows)]
+fn detect_windows_platform_banner() -> Option<String> {
+    const CURRENT_VERSION_KEY: &str = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
+
+    let product_name =
+        read_registry_string(HKEY_LOCAL_MACHINE, CURRENT_VERSION_KEY, "ProductName")?;
+    let display_version =
+        read_registry_string(HKEY_LOCAL_MACHINE, CURRENT_VERSION_KEY, "DisplayVersion");
+    let registry_build_number = read_registry_string(
+        HKEY_LOCAL_MACHINE,
+        CURRENT_VERSION_KEY,
+        "CurrentBuildNumber",
+    );
+    let ubr = read_registry_dword(HKEY_LOCAL_MACHINE, CURRENT_VERSION_KEY, "UBR");
+    let runtime_build_number = detect_runtime_windows_build_number();
+    let build_number_value = runtime_build_number.or_else(|| {
+        registry_build_number
+            .as_deref()
+            .and_then(|value| value.parse::<u32>().ok())
+    });
+    let build_number = runtime_build_number
+        .map(|value| value.to_string())
+        .or(registry_build_number);
+
+    let mut platform = normalize_windows_product_name(product_name, build_number_value);
+    if let Some(version) = display_version {
+        platform.push(' ');
+        platform.push_str(&version);
+    }
+
+    if let Some(build_number) = build_number {
+        let build = match ubr {
+            Some(revision) => format!("Build {build_number}.{revision}"),
+            None => format!("Build {build_number}"),
+        };
+        platform.push_str(" | ");
+        platform.push_str(&build);
+    }
+
+    Some(platform)
+}
+
+#[cfg(windows)]
+fn detect_runtime_windows_build_number() -> Option<u32> {
+    let mut version_info = OSVERSIONINFOW {
+        dwOSVersionInfoSize: size_of::<OSVERSIONINFOW>() as u32,
+        ..Default::default()
+    };
+    let status = unsafe { RtlGetVersion(&mut version_info) };
+    status.is_ok().then_some(version_info.dwBuildNumber)
+}
+
+#[cfg(windows)]
+fn normalize_windows_product_name(product_name: String, build_number: Option<u32>) -> String {
+    if build_number.is_some_and(|value| value >= 22000) && product_name.starts_with("Windows 10") {
+        product_name.replacen("Windows 10", "Windows 11", 1)
+    } else {
+        product_name
+    }
+}
+
+#[cfg(windows)]
+fn detect_windows_hardware_banner() -> Option<String> {
+    const PROCESSOR_KEY: &str = r"HARDWARE\DESCRIPTION\System\CentralProcessor\0";
+
+    let cpu = read_registry_string(HKEY_LOCAL_MACHINE, PROCESSOR_KEY, "ProcessorNameString");
+    let memory = format_memory_banner(
+        detect_installed_memory_kilobytes(),
+        detect_installed_memory_speeds_mt_per_s(),
+    );
+
+    match (cpu, memory) {
+        (Some(cpu), Some(memory)) => Some(format!("{cpu} | {memory}")),
+        (Some(cpu), None) => Some(cpu),
+        (None, Some(memory)) => Some(memory),
+        (None, None) => None,
+    }
+}
+
+#[cfg(windows)]
+fn read_registry_string(
+    hkey: windows::Win32::System::Registry::HKEY,
+    subkey: &str,
+    value_name: &str,
+) -> Option<String> {
+    let subkey_wide = encode_wide(subkey);
+    let value_name_wide = encode_wide(value_name);
+    let mut byte_len = 0u32;
+    let status = unsafe {
+        RegGetValueW(
+            hkey,
+            PCWSTR(subkey_wide.as_ptr()),
+            PCWSTR(value_name_wide.as_ptr()),
+            RRF_RT_REG_SZ,
+            None,
+            None,
+            Some(&mut byte_len),
+        )
+    };
+    if status != ERROR_SUCCESS || byte_len == 0 {
+        return None;
+    }
+
+    let mut buffer = vec![0u16; (byte_len as usize + 1) / 2];
+    let status = unsafe {
+        RegGetValueW(
+            hkey,
+            PCWSTR(subkey_wide.as_ptr()),
+            PCWSTR(value_name_wide.as_ptr()),
+            RRF_RT_REG_SZ,
+            None,
+            Some(buffer.as_mut_ptr().cast()),
+            Some(&mut byte_len),
+        )
+    };
+
+    (status == ERROR_SUCCESS)
+        .then(|| normalized_string(decode_wide(&buffer)))
+        .flatten()
+}
+
+#[cfg(windows)]
+fn read_registry_dword(
+    hkey: windows::Win32::System::Registry::HKEY,
+    subkey: &str,
+    value_name: &str,
+) -> Option<u32> {
+    let subkey_wide = encode_wide(subkey);
+    let value_name_wide = encode_wide(value_name);
+    let mut value = 0u32;
+    let mut value_size = size_of_val(&value) as u32;
+    let status = unsafe {
+        RegGetValueW(
+            hkey,
+            PCWSTR(subkey_wide.as_ptr()),
+            PCWSTR(value_name_wide.as_ptr()),
+            RRF_RT_REG_DWORD,
+            None,
+            Some((&mut value as *mut u32).cast()),
+            Some(&mut value_size),
+        )
+    };
+
+    (status == ERROR_SUCCESS).then_some(value)
+}
+
+#[cfg(windows)]
+fn detect_installed_memory_kilobytes() -> Option<u64> {
+    let mut total_kilobytes = 0u64;
+    unsafe { GetPhysicallyInstalledSystemMemory(&mut total_kilobytes) }.ok()?;
+    Some(total_kilobytes)
+}
+
+#[cfg(windows)]
+fn detect_installed_memory_speeds_mt_per_s() -> Vec<u32> {
+    let mut buffer = vec![0u8; unsafe { GetSystemFirmwareTable(RSMB, 0, None) } as usize];
+    if buffer.len() < size_of::<RawSmbiosHeader>() {
+        return Vec::new();
+    }
+
+    let written = unsafe { GetSystemFirmwareTable(RSMB, 0, Some(buffer.as_mut_slice())) } as usize;
+    if written < size_of::<RawSmbiosHeader>() || written > buffer.len() {
+        return Vec::new();
+    }
+    buffer.truncate(written);
+
+    let table_length = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]) as usize;
+    if buffer.len() < size_of::<RawSmbiosHeader>() + table_length {
+        return Vec::new();
+    }
+
+    parse_smbios_memory_speeds(
+        &buffer[size_of::<RawSmbiosHeader>()..size_of::<RawSmbiosHeader>() + table_length],
+    )
+}
+
+#[cfg(windows)]
+#[repr(C)]
+struct RawSmbiosHeader {
+    used20_calling_method: u8,
+    smbios_major_version: u8,
+    smbios_minor_version: u8,
+    dmi_revision: u8,
+    length: u32,
+}
+
+#[cfg(windows)]
+fn parse_smbios_memory_speeds(table_data: &[u8]) -> Vec<u32> {
+    let mut speeds = Vec::new();
+    let mut offset = 0usize;
+
+    while offset + 4 <= table_data.len() {
+        let structure_type = table_data[offset];
+        let formatted_length = table_data[offset + 1] as usize;
+        if formatted_length < 4 || offset + formatted_length > table_data.len() {
+            break;
+        }
+
+        let formatted = &table_data[offset..offset + formatted_length];
+        if structure_type == 17
+            && let Some(speed) = parse_memory_device_speed_mt_per_s(formatted)
+        {
+            speeds.push(speed);
+        }
+
+        let mut next = offset + formatted_length;
+        while next + 1 < table_data.len() {
+            if table_data[next] == 0 && table_data[next + 1] == 0 {
+                next += 2;
+                break;
+            }
+            next += 1;
+        }
+
+        if next <= offset + formatted_length {
+            break;
+        }
+        offset = next;
+
+        if structure_type == 127 {
+            break;
+        }
+    }
+
+    speeds
+}
+
+#[cfg(windows)]
+fn parse_memory_device_speed_mt_per_s(formatted: &[u8]) -> Option<u32> {
+    let size = read_smbios_u16(formatted, 12)?;
+    if size == 0 || size == u16::MAX {
+        return None;
+    }
+
+    read_smbios_u16(formatted, 32)
+        .filter(|speed| *speed > 0 && *speed != u16::MAX)
+        .or_else(|| read_smbios_u16(formatted, 21).filter(|speed| *speed > 0 && *speed != u16::MAX))
+        .map(u32::from)
+}
+
+#[cfg(windows)]
+fn read_smbios_u16(data: &[u8], offset: usize) -> Option<u16> {
+    data.get(offset..offset + 2)
+        .map(|value| u16::from_le_bytes([value[0], value[1]]))
+}
+
+#[cfg(windows)]
+fn format_memory_banner(total_kilobytes: Option<u64>, speeds_mt_per_s: Vec<u32>) -> Option<String> {
+    let capacity = total_kilobytes.map(format_memory_capacity_label);
+    let speed = format_memory_speed_label(&speeds_mt_per_s);
+
+    match (capacity, speed) {
+        (Some(capacity), Some(speed)) => Some(format!("{capacity} RAM @ {speed}")),
+        (Some(capacity), None) => Some(format!("{capacity} RAM")),
+        (None, Some(speed)) => Some(format!("RAM @ {speed}")),
+        (None, None) => None,
+    }
+}
+
+#[cfg(windows)]
+fn format_memory_capacity_label(total_kilobytes: u64) -> String {
+    let gibibytes = total_kilobytes as f64 / (1024.0 * 1024.0);
+    if gibibytes >= 100.0 || (gibibytes - gibibytes.round()).abs() < 0.05 {
+        format!("{:.0} GB", gibibytes.round())
+    } else {
+        format!("{gibibytes:.1} GB")
+    }
+}
+
+#[cfg(windows)]
+fn format_memory_speed_label(speeds_mt_per_s: &[u32]) -> Option<String> {
+    let mut speeds: Vec<u32> = speeds_mt_per_s
+        .iter()
+        .copied()
+        .filter(|speed| *speed > 0)
+        .collect();
+    if speeds.is_empty() {
+        return None;
+    }
+
+    speeds.sort_unstable();
+    let minimum = *speeds.first()?;
+    let maximum = *speeds.last()?;
+    if minimum == maximum {
+        Some(format!("{minimum} MT/s"))
+    } else {
+        Some(format!("{minimum}-{maximum} MT/s"))
+    }
+}
+
 #[cfg(windows)]
 fn encode_wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
@@ -4911,9 +5238,33 @@ mod tests {
         CollectionDriveRecord, CollectionProgressState, CollectionRuntimePhase,
         build_collection_activity_details, build_collection_activity_snapshot,
         build_collection_catalog_records, build_startup_error_dialog_body, collection_source_state,
-        format_error_details, guard_desktop_action, normalized_selected_volumes_or_default,
-        panic_payload_message,
+        format_error_details, guard_desktop_action, normalize_windows_product_name,
+        normalized_selected_volumes_or_default, panic_payload_message,
     };
+
+    #[test]
+    fn normalize_windows_product_name_keeps_windows_10_below_windows_11_builds() {
+        assert_eq!(
+            normalize_windows_product_name("Windows 10 Pro".to_string(), Some(19045)),
+            "Windows 10 Pro"
+        );
+    }
+
+    #[test]
+    fn normalize_windows_product_name_promotes_stale_windows_10_name_at_windows_11_boundary() {
+        assert_eq!(
+            normalize_windows_product_name("Windows 10 Pro".to_string(), Some(22000)),
+            "Windows 11 Pro"
+        );
+    }
+
+    #[test]
+    fn normalize_windows_product_name_leaves_non_windows_10_prefixes_unchanged() {
+        assert_eq!(
+            normalize_windows_product_name("Windows 11 Enterprise".to_string(), Some(26200)),
+            "Windows 11 Enterprise"
+        );
+    }
 
     #[test]
     fn collection_activity_snapshot_surfaces_runtime_and_scope_only_rows() {
