@@ -1,26 +1,28 @@
-use super::{encoding::base64_decode_standard, error::ArtemisError, strings::extract_utf8_string};
+use super::{encoding::base64_decode_standard, error::ArtemisError};
 use log::error;
+#[cfg(feature = "yarax")]
+use super::strings::extract_utf8_string;
 #[cfg(feature = "yarax")]
 use yara_x::{Compiler, Scanner};
 
 /// Scan a file using Yara-X
-pub(crate) fn scan_file(path: &str, encoded_rule: &str) -> Result<Vec<String>, ArtemisError> {
+pub(crate) fn scan_file(_path: &str, _encoded_rule: &str) -> Result<Vec<String>, ArtemisError> {
     #[cfg(not(feature = "yarax"))]
     {
         return Ok(Vec::new());
     }
     #[cfg(feature = "yarax")]
     {
-        let rule = rule_decode(encoded_rule)?;
+        let rule = rule_decode(_encoded_rule)?;
         let compile = compile_rule(&rule)?;
 
         let rules = compile.build();
         let mut scanner = Scanner::new(&rules);
-        let results = scanner.scan_file(path);
+        let results = scanner.scan_file(_path);
         let hits = match results {
             Ok(result) => result,
             Err(err) => {
-                error!("[forensics] Failed to scan file {path}: {err:?}",);
+                error!("[forensics] Failed to scan file {_path}: {err:?}",);
                 return Err(ArtemisError::YaraScan);
             }
         };
@@ -33,19 +35,19 @@ pub(crate) fn scan_file(path: &str, encoded_rule: &str) -> Result<Vec<String>, A
 }
 
 /// Scan bytes using Yara-X
-pub(crate) fn scan_bytes(data: &[u8], encoded_rule: &str) -> Result<Vec<String>, ArtemisError> {
+pub(crate) fn scan_bytes(_data: &[u8], _encoded_rule: &str) -> Result<Vec<String>, ArtemisError> {
     #[cfg(not(feature = "yarax"))]
     {
         return Ok(Vec::new());
     }
     #[cfg(feature = "yarax")]
     {
-        let rule = rule_decode(encoded_rule)?;
+        let rule = rule_decode(_encoded_rule)?;
         let compile = compile_rule(&rule)?;
 
         let rules = compile.build();
         let mut scanner = Scanner::new(&rules);
-        let results = scanner.scan(data);
+        let results = scanner.scan(_data);
         let hits = match results {
             Ok(result) => result,
             Err(err) => {
@@ -78,6 +80,7 @@ pub(crate) fn scan_base64_bytes(
     scan_bytes(&bytes, encoded_rule)
 }
 
+#[cfg(feature = "yarax")]
 /// Base64 decode yara rule
 fn rule_decode(rule: &str) -> Result<String, ArtemisError> {
     let bytes_result = base64_decode_standard(rule);

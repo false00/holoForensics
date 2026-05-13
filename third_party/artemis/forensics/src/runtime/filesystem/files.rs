@@ -11,6 +11,9 @@ use common::files::Hashes;
 use serde::Serialize;
 use std::path::Path;
 
+#[cfg(target_family = "unix")]
+use std::os::unix::prelude::MetadataExt;
+
 /// Return metadata about provided path or file
 pub(crate) fn js_stat(
     _this: &JsValue,
@@ -33,7 +36,13 @@ pub(crate) fn js_stat(
         }
     };
 
-    let mut info = JsFileInfo {
+    #[cfg(target_family = "unix")]
+    let (inode, mode, uid, gid) = (meta.ino(), meta.mode(), meta.uid(), meta.gid());
+
+    #[cfg(not(target_family = "unix"))]
+    let (inode, mode, uid, gid) = (0, 0, 0, 0);
+
+    let info = JsFileInfo {
         filename: get_filename(&path),
         extension: file_extension(&path),
         directory: Path::new(&path)
@@ -47,23 +56,14 @@ pub(crate) fn js_stat(
         accessed: timestamps.accessed,
         changed: timestamps.changed,
         size: meta.len(),
-        inode: 0,
-        mode: 0,
-        uid: 0,
-        gid: 0,
+        inode,
+        mode,
+        uid,
+        gid,
         is_file: meta.is_file(),
         is_directory: meta.is_dir(),
         is_symlink: meta.is_symlink(),
     };
-
-    #[cfg(target_family = "unix")]
-    {
-        use std::os::unix::prelude::MetadataExt;
-        info.inode = meta.ino();
-        info.mode = meta.mode();
-        info.uid = meta.uid();
-        info.gid = meta.gid();
-    }
 
     let data = serde_json::to_value(&info).unwrap_or_default();
     let value = JsValue::from_json(&data, context)?;
