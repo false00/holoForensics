@@ -100,18 +100,6 @@ Create Package preserves original Windows paths where applicable, hashes collect
 | ✅ | `windows_recycle_bin_info2` | Windows XP recycle-bin `INFO2` |
 | ✅ | `windows_timeline` | Windows Timeline `ActivitiesCache.db` |
 
-### Planned UI Surfaces
-
-These surfaces are visible in the desktop collection catalog but do not yet have live collectors:
-
-| Status | Surface | Primary targets |
-| :---: | --- | --- |
-| 🕓 | RDP and Lateral Movement | TerminalServices logs, Security logons, RDP cache, and Terminal Server Client keys |
-| 🕓 | USB and External Devices | USBSTOR, MountedDevices, portable devices, DriverFrameworks, Shellbags, LNK, and Jump Lists |
-| 🕓 | Volume Shadow Copies | Shadow copies, restore points, older hives, logs, files, and malware |
-| 🕓 | Memory, Hibernation, and Crash Dumps | RAM image, `hiberfil.sys`, `pagefile.sys`, `swapfile.sys`, crash dumps, minidumps, and WER |
-| 🕓 | Startup Folders | User and ProgramData Startup folders |
-
 ## Getting Started
 
 ### Prerequisites

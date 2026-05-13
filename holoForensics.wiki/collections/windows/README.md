@@ -2,7 +2,7 @@
 
 This section mirrors the Windows collection surface in `src/collection_catalog.rs` and `src/collections/windows/`.
 
-The desktop Collection tab now also showcases a larger Windows DFIR acquisition portfolio for demo use: Event Logs, Registry Hives, Prefetch, `$MFT`, `$UsnJrnl`, `$LogFile`, INDX records, SRUM, Browser Artifacts, LNK files, Jump Lists, Recycle Bin, Scheduled Tasks, PowerShell Activity, RDP/Lateral Movement artifacts, USB/External Device artifacts, Volume Shadow Copies, Memory/Hibernation/Crash Dumps, and Startup Folders. Those UI cards are planning briefs unless the collection is listed in the table below or implemented under `src/collections/windows/`. Registry-only surfaces such as `Amcache.hve`, ShimCache/AppCompatCache, UserAssist, MUICache, Shellbags, Services registry keys, and installed-program uninstall keys are collected through the live Registry Hives collector rather than shown as standalone collection cards.
+The desktop Collection tab reflects the implemented Windows collection catalog listed below. Registry-only surfaces such as `Amcache.hve`, ShimCache/AppCompatCache, UserAssist, MUICache, Shellbags, Services registry keys, and installed-program uninstall keys are collected through the live Registry Hives collector rather than shown as standalone collection cards.
 
 | Collection | Source | Page | Status | Notes |
 | --- | --- | --- | --- | --- |

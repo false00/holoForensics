@@ -71,7 +71,6 @@ const TRIAGE_COLLECTION_TITLES: &[&str] = &[
     "Scheduled Tasks",
     "PowerShell Activity",
     "Browser Artifacts",
-    "USB and External Devices",
 ];
 const DEFAULT_COLLECTION_USN_CHUNK_INDEX: i32 = 1;
 const FALSE00_REPOSITORY_URL: &str = "https://github.com/false00/holoForensics";
@@ -4647,15 +4646,6 @@ fn build_collection_catalog_records() -> Vec<CollectionCatalogRecord> {
             true,
         ),
         CollectionCatalogRecord::new(
-            "RDP and Lateral Movement",
-            "Remote access",
-            "Planned",
-            "Remote Desktop artifacts show which remote hosts were accessed, which users were involved, and how sessions started, reconnected, or disconnected.",
-            "Targets: TerminalServices logs, Security logon types, RDP bitmap cache, Terminal Server Client keys",
-            "This surface is high-value whenever remote access, lateral movement, or remote operator behavior is part of the investigation.",
-            false,
-        ),
-        CollectionCatalogRecord::new(
             "Scheduled Tasks",
             "Persistence + execution",
             "Available",
@@ -4674,33 +4664,6 @@ fn build_collection_catalog_records() -> Vec<CollectionCatalogRecord> {
             true,
         ),
         CollectionCatalogRecord::new(
-            "USB and External Devices",
-            "Device usage",
-            "Planned",
-            "USB and device artifacts tie hardware identities, serial numbers, drive letters, and user activity on removable media back to the host.",
-            "Targets: USBSTOR, MountedDevices, Windows Portable Devices, DriverFrameworks, Shellbags, LNK, Jump Lists",
-            "This is essential in staging and data-theft cases because it links removable devices to filesystem and Explorer activity.",
-            false,
-        ),
-        CollectionCatalogRecord::new(
-            "Volume Shadow Copies",
-            "Historical recovery",
-            "Planned",
-            "Shadow copies and restore points provide historical recovery paths for evidence that has rolled over, been deleted, or been overwritten in the live system.",
-            "Targets: Volume Shadow Copies, restore points, older hives, logs, files, malware",
-            "This surface is critical when the current system no longer retains the needed registry, event log, file, or malware state.",
-            false,
-        ),
-        CollectionCatalogRecord::new(
-            "Memory, Hibernation, and Crash Dumps",
-            "Volatile evidence",
-            "Planned",
-            "Volatile and semi-volatile artifacts expose running processes, network connections, loaded modules, credentials, injected code, and in-memory malware state.",
-            "Targets: RAM image, hiberfil.sys, pagefile.sys, swapfile.sys, memory.dmp, minidumps, WER",
-            "This is the surface for process state, command remnants, tokens, unpacked malware, and memory-resident evidence that never lands cleanly on disk.",
-            false,
-        ),
-        CollectionCatalogRecord::new(
             "SRUM",
             "Usage telemetry",
             "Available",
@@ -4708,15 +4671,6 @@ fn build_collection_catalog_records() -> Vec<CollectionCatalogRecord> {
             "Targets: C:\\Windows\\System32\\sru\\* plus SOFTWARE and SYSTEM supporting hives",
             "Included in Create Package today. The live Rust collector uses a VSS snapshot, copies the SRU folder plus SOFTWARE and SYSTEM from the snapshot rather than live paths, hashes source and destination bytes with SHA-256, and records failures in the centralized manifest.",
             true,
-        ),
-        CollectionCatalogRecord::new(
-            "Startup Folders",
-            "Startup persistence",
-            "Planned",
-            "Startup folders remain a simple but high-signal persistence location for dropped executables, scripts, and shortcuts.",
-            "Targets: User and ProgramData Startup folders",
-            "Collect this surface whenever user-level or system-wide startup persistence is in scope; it is easy to explain and easy to miss if omitted.",
-            false,
         ),
     ];
 
