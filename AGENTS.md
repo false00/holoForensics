@@ -23,6 +23,9 @@ This file is the canonical assistant-facing instruction surface for this reposit
 - When changing Slint files, desktop UI layout, theming, or other user-visible UI behavior, validate the rendered result with `capture-ui-screenshots.ps1` before concluding the task.
 - Prefer the narrowest screenshot state that covers the change, such as `about`, `settings`, `main`, `scope`, `usn-settings`, or `collection-progress`.
 - Mention the captured screenshot path in the final response when UI validation was part of the work.
+- When changing `src/parsers/windows/artemis.rs`, vendored Artemis schemas, or other Artemis-backed Windows parser plumbing, verify the exact current Artemis option-field names against the vendored structs and add or update a regression test that fails if the serialized config drifts. Serde can ignore unknown fields, so a wrong field name may silently fall back to live-host parsing instead of failing fast.
+- For Artemis-backed Windows parser changes, run at least one parse-mode validation against a real collection zip or a focused repro archive. Verify emitted evidence paths stay rooted under the extracted evidence tree, and inspect nested parser logs as well as the manifest because manifest `ok` can still hide raw-drive fallback or zero-byte outputs.
+- When accepting upstream dependency changes from vendored Artemis, explicitly check for root-workspace compatibility constraints such as BOA or ICU graph conflicts and `rusqlite` or SQLite linkage alignment before treating the bump as mechanical.
 
 ## Commit And Push
 
@@ -32,6 +35,7 @@ This file is the canonical assistant-facing instruction surface for this reposit
 - The same hook runs `cargo fmt --check` for Rust changes before assistant-run commits and pushes.
 - The same hook runs `cargo test --locked` before assistant-run pushes that include code, build, or UI changes.
 - If the hook blocks a commit or push, surface the failure reason, fix it locally, and retry instead of bypassing the guard.
+- Before assistant-run pushes that include vendored dependency updates or large upstream fixture imports, scan the staged vendored tests and fixtures for credential-like literals or other secret-scanning tripwires. Replace obviously fake placeholders before retrying the push rather than treating the remote rejection as the first signal.
 
 ## Release Workflow
 
