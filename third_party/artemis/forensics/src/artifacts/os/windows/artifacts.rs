@@ -1,19 +1,13 @@
-use super::jumplists::parser::grab_jumplists;
-use super::mft::parser::grab_mft;
-use super::ntfs::parser::ntfs_filelist;
-use super::outlook::parser::grab_outlook;
-use super::recyclebin::parser::grab_recycle_bin;
-use super::registry::parser::parse_registry;
-use super::search::parser::grab_search;
-use super::services::parser::grab_services;
-use super::tasks::parser::grab_tasks;
-use super::wmi::parser::grab_wmi_persist;
 use super::{
     accounts::parser::grab_users, amcache::parser::grab_amcache, bits::parser::grab_bits,
-    error::WinArtifactError, eventlogs::parser::grab_eventlogs, prefetch::parser::grab_prefetch,
+    error::WinArtifactError, eventlogs::parser::grab_eventlogs, jumplists::parser::grab_jumplists,
+    mft::parser::grab_mft, ntfs::parser::ntfs_filelist, outlook::parser::grab_outlook,
+    prefetch::parser::grab_prefetch, recyclebin::parser::grab_recycle_bin,
+    registry::parser::parse_registry, search::parser::grab_search, services::parser::grab_services,
     shellbags::parser::grab_shellbags, shimcache::parser::grab_shimcache,
     shimdb::parser::grab_shimdb, shortcuts::parser::grab_lnk_directory, srum::parser::grab_srum,
-    userassist::parser::grab_userassist, usnjrnl::parser::grab_usnjrnl,
+    tasks::parser::grab_tasks, userassist::parser::grab_userassist, usnjrnl::parser::grab_usnjrnl,
+    wmi::parser::grab_wmi_persist,
 };
 use crate::artifacts::output::output_artifact;
 use crate::structs::artifacts::os::windows::{
@@ -37,7 +31,7 @@ pub(crate) fn prefetch(
     let start_time = time::time_now();
 
     let pf_results = grab_prefetch(options);
-    let pf_data = match pf_results {
+    let entries = match pf_results {
         Ok(results) => results,
         Err(err) => {
             error!("[forensics] Artemis failed to parse Prefetch: {err:?}");
@@ -45,7 +39,11 @@ pub(crate) fn prefetch(
         }
     };
 
-    let serde_data_result = serde_json::to_value(pf_data);
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
         Err(err) => {
@@ -65,14 +63,11 @@ pub(crate) fn eventlogs(
     filter: bool,
 ) -> Result<(), WinArtifactError> {
     // Since we may be parsing multiple files, let the parser handle outputting the data
-    let result = grab_eventlogs(options, output, filter);
-    match result {
-        Ok(_) => {}
-        Err(err) => {
-            error!("[forensics] Artemis failed to parse EventLogs: {err:?}");
-            return Err(WinArtifactError::EventLogs);
-        }
-    };
+    if let Err(err) = grab_eventlogs(options, output, filter) {
+        error!("[forensics] Artemis failed to parse EventLogs: {err:?}");
+        return Err(WinArtifactError::EventLogs);
+    }
+
     Ok(())
 }
 
@@ -83,14 +78,11 @@ pub(crate) fn registry(
     filter: bool,
 ) -> Result<(), WinArtifactError> {
     // Since we may be parsing multiple files, let the parser handle outputting the data
-    let result = parse_registry(options, output, filter);
-    match result {
-        Ok(_) => {}
-        Err(err) => {
-            error!("[forensics] Failed to parse Registry: {err:?}");
-            return Err(WinArtifactError::Registry);
-        }
+    if let Err(err) = parse_registry(options, output, filter) {
+        error!("[forensics] Failed to parse Registry: {err:?}");
+        return Err(WinArtifactError::Registry);
     }
+
     Ok(())
 }
 
@@ -101,14 +93,11 @@ pub(crate) fn raw_filelist(
     filter: bool,
 ) -> Result<(), WinArtifactError> {
     // Since we may be walking the file system, let the parser handle outputting the data
-    let result = ntfs_filelist(options, output, filter);
-    match result {
-        Ok(_) => {}
-        Err(err) => {
-            error!("[forensics] Failed to parse NTFS: {err:?}");
-            return Err(WinArtifactError::Ntfs);
-        }
+    if let Err(err) = ntfs_filelist(options, output, filter) {
+        error!("[forensics] Failed to parse NTFS: {err:?}");
+        return Err(WinArtifactError::Ntfs);
     }
+
     Ok(())
 }
 
@@ -120,7 +109,7 @@ pub(crate) fn shimdb(
 ) -> Result<(), WinArtifactError> {
     let start_time = time::time_now();
     let shimdb_results = grab_shimdb(options);
-    let sdb_data = match shimdb_results {
+    let entries = match shimdb_results {
         Ok(results) => results,
         Err(err) => {
             error!("[forensics] Artemis failed to parse Shimdb: {err:?}");
@@ -128,7 +117,11 @@ pub(crate) fn shimdb(
         }
     };
 
-    let serde_data_result = serde_json::to_value(sdb_data);
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
         Err(err) => {
@@ -150,7 +143,7 @@ pub(crate) fn userassist(
     let start_time = time::time_now();
 
     let assist_results = grab_userassist(options);
-    let assist_data = match assist_results {
+    let entries = match assist_results {
         Ok(results) => results,
         Err(err) => {
             error!("[forensics] Artemis failed to parse UserAssist: {err:?}");
@@ -158,7 +151,11 @@ pub(crate) fn userassist(
         }
     };
 
-    let serde_data_result = serde_json::to_value(assist_data);
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
         Err(err) => {
@@ -179,7 +176,7 @@ pub(crate) fn shimcache(
     let start_time = time::time_now();
 
     let shim_results = grab_shimcache(options);
-    let shim_data = match shim_results {
+    let entries = match shim_results {
         Ok(results) => results,
         Err(err) => {
             error!("[forensics] Artemis failed to parse Shimcache: {err:?}");
@@ -187,7 +184,11 @@ pub(crate) fn shimcache(
         }
     };
 
-    let serde_data_result = serde_json::to_value(shim_data);
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
         Err(err) => {
@@ -215,6 +216,10 @@ pub(crate) fn shellbags(
             error!("[forensics] Artemis failed to parse Shellbags: {err:?}");
             return Err(WinArtifactError::Shellbag);
         }
+    }
+
+    if entries.is_empty() {
+        return Ok(());
     }
 
     let serde_data_result = serde_json::to_value(entries);
@@ -247,6 +252,10 @@ pub(crate) fn amcache(
         }
     }
 
+    if entries.is_empty() {
+        return Ok(());
+    }
+
     let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
@@ -267,7 +276,7 @@ pub(crate) fn shortcuts(
 ) -> Result<(), WinArtifactError> {
     let start_time = time::time_now();
 
-    let artifact_result = grab_lnk_directory(&options.path);
+    let artifact_result = grab_lnk_directory(&options.dir);
     let entries = match artifact_result {
         Ok(result) => result,
         Err(err) => {
@@ -275,6 +284,10 @@ pub(crate) fn shortcuts(
             return Err(WinArtifactError::Shortcuts);
         }
     };
+
+    if entries.is_empty() {
+        return Ok(());
+    }
 
     let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
@@ -294,27 +307,12 @@ pub(crate) fn usnjrnl(
     output: &mut Output,
     filter: bool,
 ) -> Result<(), WinArtifactError> {
-    let start_time = time::time_now();
+    if let Err(err) = grab_usnjrnl(options, output, filter) {
+        error!("[forensics] Artemis failed to parse UsnJrnl data: {err:?}");
+        return Err(WinArtifactError::UsnJrnl);
+    }
 
-    let artifact_result = grab_usnjrnl(options);
-    let entries = match artifact_result {
-        Ok(result) => result,
-        Err(err) => {
-            error!("[forensics] Artemis failed to parse UsnJrnl data: {err:?}");
-            return Err(WinArtifactError::UsnJrnl);
-        }
-    };
-
-    let serde_data_result = serde_json::to_value(entries);
-    let mut serde_data = match serde_data_result {
-        Ok(results) => results,
-        Err(err) => {
-            error!("[forensics] Failed to serialize usnjrnl: {err:?}");
-            return Err(WinArtifactError::Serialize);
-        }
-    };
-    let output_name = "usnjrnl";
-    output_data(&mut serde_data, output_name, output, start_time, filter)
+    Ok(())
 }
 
 /// Get Windows `Bits` data
@@ -334,6 +332,10 @@ pub(crate) fn bits(
         }
     };
 
+    if entries.is_empty() {
+        return Ok(());
+    }
+
     let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
@@ -352,14 +354,11 @@ pub(crate) fn srum(
     output: &mut Output,
     filter: bool,
 ) -> Result<(), WinArtifactError> {
-    let artifact_result = grab_srum(options, output, filter);
-    match artifact_result {
-        Ok(_) => (),
-        Err(err) => {
-            error!("[forensics] Artemis failed to parse SRUM data: {err:?}");
-            return Err(WinArtifactError::Srum);
-        }
-    };
+    if let Err(err) = grab_srum(options, output, filter) {
+        error!("[forensics] Artemis failed to parse SRUM data: {err:?}");
+        return Err(WinArtifactError::Srum);
+    }
+
     Ok(())
 }
 
@@ -369,14 +368,11 @@ pub(crate) fn search(
     output: &mut Output,
     filter: bool,
 ) -> Result<(), WinArtifactError> {
-    let artifact_result = grab_search(options, output, filter);
-    match artifact_result {
-        Ok(_) => (),
-        Err(err) => {
-            error!("[forensics] Artemis failed to parse Search data: {err:?}");
-            return Err(WinArtifactError::Search);
-        }
-    };
+    if let Err(err) = grab_search(options, output, filter) {
+        error!("[forensics] Artemis failed to parse Search data: {err:?}");
+        return Err(WinArtifactError::Search);
+    }
+
     Ok(())
 }
 
@@ -396,6 +392,11 @@ pub(crate) fn users_windows(
             return Err(WinArtifactError::Users);
         }
     };
+
+    if entries.is_empty() {
+        return Ok(());
+    }
+
     let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
@@ -414,28 +415,12 @@ pub(crate) fn tasks(
     output: &mut Output,
     filter: bool,
 ) -> Result<(), WinArtifactError> {
-    let start_time = time::time_now();
+    if let Err(err) = grab_tasks(options, output, filter) {
+        error!("[forensics] Artemis failed to parse Tasks: {err:?}");
+        return Err(WinArtifactError::Tasks);
+    }
 
-    let task_results = grab_tasks(options);
-    let task_data = match task_results {
-        Ok(results) => results,
-        Err(err) => {
-            error!("[forensics] Artemis failed to parse Tasks: {err:?}");
-            return Err(WinArtifactError::Tasks);
-        }
-    };
-
-    let serde_data_result = serde_json::to_value(task_data);
-    let mut serde_data = match serde_data_result {
-        Ok(results) => results,
-        Err(err) => {
-            error!("[forensics] Failed to serialize tasks: {err:?}");
-            return Err(WinArtifactError::Serialize);
-        }
-    };
-
-    let output_name = "tasks";
-    output_data(&mut serde_data, output_name, output, start_time, filter)
+    Ok(())
 }
 
 /// Parse the Windows `Services` artifact
@@ -447,7 +432,7 @@ pub(crate) fn services(
     let start_time = time::time_now();
 
     let service_results = grab_services(options);
-    let service_data = match service_results {
+    let entries = match service_results {
         Ok(results) => results,
         Err(err) => {
             error!("[forensics] Artemis failed to parse Services: {err:?}");
@@ -455,7 +440,11 @@ pub(crate) fn services(
         }
     };
 
-    let serde_data_result = serde_json::to_value(service_data);
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
         Err(err) => {
@@ -477,7 +466,7 @@ pub(crate) fn jumplists(
     let start_time = time::time_now();
 
     let jumplist_result = grab_jumplists(options);
-    let jumplist_data = match jumplist_result {
+    let entries = match jumplist_result {
         Ok(results) => results,
         Err(err) => {
             error!("[forensics] Artemis failed to parse Jumplists: {err:?}");
@@ -485,7 +474,11 @@ pub(crate) fn jumplists(
         }
     };
 
-    let serde_data_result = serde_json::to_value(jumplist_data);
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
         Err(err) => {
@@ -507,7 +500,7 @@ pub(crate) fn recycle_bin(
     let start_time = time::time_now();
 
     let bin_result = grab_recycle_bin(options);
-    let bin_data = match bin_result {
+    let entries = match bin_result {
         Ok(results) => results,
         Err(err) => {
             error!("[forensics] Artemis failed to parse Recycle Bin: {err:?}");
@@ -515,7 +508,11 @@ pub(crate) fn recycle_bin(
         }
     };
 
-    let serde_data_result = serde_json::to_value(bin_data);
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
         Err(err) => {
@@ -537,7 +534,7 @@ pub(crate) fn wmi_persist(
     let start_time = time::time_now();
 
     let wmi_result = grab_wmi_persist(options);
-    let wmi_data = match wmi_result {
+    let entries = match wmi_result {
         Ok(results) => results,
         Err(err) => {
             error!("[forensics] Artemis failed to parse WMI Persistence: {err:?}");
@@ -545,7 +542,11 @@ pub(crate) fn wmi_persist(
         }
     };
 
-    let serde_data_result = serde_json::to_value(wmi_data);
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
         Err(err) => {
@@ -564,14 +565,10 @@ pub(crate) fn outlook(
     output: &mut Output,
     filter: bool,
 ) -> Result<(), WinArtifactError> {
-    let outlook_result = grab_outlook(options, output, filter);
-    match outlook_result {
-        Ok(results) => results,
-        Err(err) => {
-            error!("[forensics] Artemis failed to parse Outlook: {err:?}");
-            return Err(WinArtifactError::Outlook);
-        }
-    };
+    if let Err(err) = grab_outlook(options, output, filter) {
+        error!("[forensics] Artemis failed to parse Outlook: {err:?}");
+        return Err(WinArtifactError::Outlook);
+    }
 
     Ok(())
 }
@@ -582,14 +579,10 @@ pub(crate) fn mft(
     output: &mut Output,
     filter: bool,
 ) -> Result<(), WinArtifactError> {
-    let mft_results = grab_mft(options, output, filter);
-    match mft_results {
-        Ok(results) => results,
-        Err(err) => {
-            error!("[forensics] Artemis failed to parse MFT: {err:?}");
-            return Err(WinArtifactError::Mft);
-        }
-    };
+    if let Err(err) = grab_mft(options, output, filter) {
+        error!("[forensics] Artemis failed to parse MFT: {err:?}");
+        return Err(WinArtifactError::Mft);
+    }
 
     Ok(())
 }
@@ -603,11 +596,8 @@ pub(crate) fn output_data(
     filter: bool,
 ) -> Result<(), WinArtifactError> {
     let status = output_artifact(serde_data, output_name, output, start_time, filter);
-    if status.is_err() {
-        error!(
-            "[forensics] Could not output data: {:?}",
-            status.unwrap_err()
-        );
+    if let Err(result) = status {
+        error!("[forensics] Could not output data: {result:?}");
         return Err(WinArtifactError::Output);
     }
     Ok(())
@@ -643,15 +633,9 @@ mod tests {
             directory: directory.to_string(),
             format: format.to_string(),
             compress,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: String::from("local"),
-            filter_name: None,
-            filter_script: None,
-            logging: None,
+            ..Default::default()
         }
     }
 
@@ -770,7 +754,7 @@ mod tests {
     fn test_usnjrnl() {
         let options = UsnJrnlOptions {
             alt_drive: None,
-            alt_path: None,
+            alt_file: None,
             alt_mft: None,
         };
         let mut output = output_options("usn_temp", "json", "./tmp", false);
@@ -782,10 +766,10 @@ mod tests {
     #[test]
     fn test_shortcuts() {
         let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        test_location.push("tests/test_data/windows/lnk/win11");
+        test_location.push("tests/test_data/windows/lnk/win11/*");
 
         let options = ShortcutOptions {
-            path: test_location.display().to_string(),
+            dir: test_location.display().to_string(),
         };
         let mut output = output_options("shortcuts_temp", "json", "./tmp", false);
 
@@ -862,7 +846,7 @@ mod tests {
 
     #[test]
     fn test_jumplists() {
-        let options = JumplistsOptions { alt_file: None };
+        let options = JumplistsOptions { alt_dir: None };
         let mut output = output_options("jumplists_temp", "json", "./tmp", false);
 
         let status = jumplists(&options, &mut output, false).unwrap();

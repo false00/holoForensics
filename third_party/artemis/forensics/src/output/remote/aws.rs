@@ -1,4 +1,5 @@
 use super::error::RemoteError;
+use crate::output::remote::data::prep_data_upload;
 use crate::structs::toml::Output;
 use crate::utils::encoding::base64_decode_standard;
 use log::{error, warn};
@@ -10,11 +11,20 @@ use rusty_s3::actions::{
 };
 use rusty_s3::{Bucket, Credentials, UrlStyle};
 use serde::Deserialize;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::time::Duration;
 
 /// Upload data to AWS S3 Bucket using a signed URL signature
-pub(crate) fn aws_upload(data: &[u8], output: &Output, filename: &str) -> Result<(), RemoteError> {
+pub(crate) fn aws_upload(
+    serde_data: &mut Value,
+    output: &mut Output,
+    filename: &str,
+    start_time: u64,
+    artifact_name: &str,
+) -> Result<(), RemoteError> {
+    let data = prep_data_upload(serde_data, output, "aws", artifact_name, start_time)?;
+
     let aws_url = if let Some(url) = &output.url {
         url
     } else {
@@ -28,11 +38,17 @@ pub(crate) fn aws_upload(data: &[u8], output: &Output, filename: &str) -> Result
         return Err(RemoteError::RemoteApiKey);
     };
 
+    // Log files are not compressed
     let aws_filename = if filename.ends_with(".log") {
         format!("{}/{}/{filename}", output.directory, output.name)
     } else {
+        let mut compression_extension = "";
+        if output.compress {
+            compression_extension = ".gz";
+        }
+
         format!(
-            "{}/{}/{filename}.{}",
+            "{}/{}/{filename}.{}{compression_extension}",
             output.directory, output.name, output.format
         )
     };
@@ -50,7 +66,11 @@ pub(crate) fn aws_upload(data: &[u8], output: &Output, filename: &str) -> Result
 
     let setup = setup_upload(aws_info, aws_endpoint_url, &aws_filename, &HashMap::new())?;
 
-    aws_start_upload(setup, data)
+    aws_start_upload(setup, &data)?;
+    // Track output files
+    output.output_files.push(aws_filename);
+
+    Ok(())
 }
 
 pub(crate) struct AwsSetup {
@@ -268,7 +288,6 @@ pub(crate) fn aws_multipart_upload(
 
     let part_upload = UploadPart::new(bucket, Some(creds), aws_filename, id, upload_id);
 
-    //let client = Client::new();
     let client = Client::builder()
         .timeout(Duration::from_secs(300))
         .build()
@@ -373,7 +392,6 @@ mod tests {
         aws_start_upload, aws_upload, setup_upload,
     };
     use crate::structs::toml::Output;
-    use crate::utils::encoding::base64_encode_standard;
     use httpmock::{
         Method::{POST, PUT},
         MockServer,
@@ -382,17 +400,9 @@ mod tests {
     use rusty_s3::{Bucket, Credentials, UrlStyle};
     use std::collections::HashMap;
 
-    const TEST_AWS_BUCKET: &str = "blah";
-    const TEST_AWS_REGION: &str = "us-east-2";
-    const TEST_AWS_KEY: &str = "artemis-test-key";
-    const TEST_AWS_SECRET: &str = "artemis-test-secret";
-
-    fn test_api_key() -> String {
-        let payload = format!(
-            r#"{{"bucket":"{TEST_AWS_BUCKET}","secret":"{TEST_AWS_SECRET}","key":"{TEST_AWS_KEY}","region":"{TEST_AWS_REGION}"}}"#
-        );
-        base64_encode_standard(payload.as_bytes())
-    }
+    const TEST_AWS_KEY_ID: &str = "test-access-key-id";
+    const TEST_AWS_SECRET: &str = "test-secret-access-key-not-real";
+    const TEST_AWS_CREDS_B64: &str = "eyJidWNrZXQiOiJibGFoIiwic2VjcmV0IjoidGVzdC1zZWNyZXQtYWNjZXNzLWtleS1ub3QtcmVhbCIsImtleSI6InRlc3QtYWNjZXNzLWtleS1pZCIsInJlZ2lvbiI6InVzLWVhc3QtMiJ9";
 
     fn output_options(
         name: &str,
@@ -408,13 +418,10 @@ mod tests {
             compress,
             timeline: false,
             url: Some(format!("http://replacemeduh.com:{port}")),
-            api_key: Some(test_api_key()),
+            api_key: Some(String::from(TEST_AWS_CREDS_B64)),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: Some(String::new()),
-            filter_script: Some(String::new()),
-            logging: Some(String::new()),
+            ..Default::default()
         }
     }
 
@@ -422,7 +429,7 @@ mod tests {
     fn test_aws_upload() {
         let server = MockServer::start();
         let port = server.port();
-        let output = output_options("aws_upload_test", "aws", "tmp", false, port);
+        let mut output = output_options("aws_upload_test", "aws", "tmp", false, port);
 
         let test = "A rust program";
         let name = "output";
@@ -441,8 +448,15 @@ mod tests {
             when.method(PUT);
             then.status(200).header("ETAG", "whatever");
         });
-        aws_upload(test.as_bytes(), &output, name).unwrap();
-        mock_me.assert_hits(2);
+        aws_upload(
+            &mut serde_json::to_value(&test).unwrap(),
+            &mut output,
+            name,
+            0,
+            "test",
+        )
+        .unwrap();
+        mock_me.assert_calls(2);
         mock_me_put.assert();
     }
 
@@ -475,14 +489,15 @@ mod tests {
         .unwrap();
         mock_me.assert();
 
-        assert_eq!(result.creds.key(), TEST_AWS_KEY)
+        // This is fake key and data
+        assert_eq!(result.creds.key(), TEST_AWS_KEY_ID)
     }
 
     #[test]
     fn test_aws_upload_compress() {
         let server = MockServer::start();
         let port = server.port();
-        let output = output_options("aws_upload_test", "aws", "tmp", true, port);
+        let mut output = output_options("aws_upload_test", "aws", "tmp", true, port);
 
         let test = "A rust program";
         let name = "output";
@@ -501,8 +516,15 @@ mod tests {
             when.method(PUT);
             then.status(200).header("ETAG", "whatever");
         });
-        aws_upload(test.as_bytes(), &output, name).unwrap();
-        mock_me.assert_hits(2);
+        aws_upload(
+            &mut serde_json::to_value(&test).unwrap(),
+            &mut output,
+            name,
+            1,
+            "test",
+        )
+        .unwrap();
+        mock_me.assert_calls(2);
         mock_me_put.assert();
     }
 
@@ -513,10 +535,10 @@ mod tests {
         let output = output_options("aws_upload_test", "aws", "tmp", false, port);
 
         let test = "A rust program";
-        let key = test_api_key();
+        let key = TEST_AWS_CREDS_B64;
         let name = "output";
 
-        let aws_info = aws_creds(&key).unwrap();
+        let aws_info = aws_creds(key).unwrap();
         let url: Url = output.url.unwrap().parse().unwrap();
 
         let mock_me = server.mock(|when, then| {
@@ -538,7 +560,7 @@ mod tests {
         let setup = setup_upload(aws_info, url, name, &HashMap::new()).unwrap();
 
         aws_start_upload(setup, test.as_bytes()).unwrap();
-        mock_me.assert_hits(2);
+        mock_me.assert_calls(2);
         mock_me_put.assert();
     }
 
@@ -565,10 +587,10 @@ mod tests {
         let first_upload = 1;
         let test = "hello";
         let url: Url = format!("http://replacemeduh.com:{port}").parse().unwrap();
-        let key = test_api_key();
+        let key = TEST_AWS_CREDS_B64;
         let name = "output";
 
-        let aws_info = aws_creds(&key).unwrap();
+        let aws_info = aws_creds(key).unwrap();
         let creds = Credentials::new(aws_info.key, aws_info.secret);
         let mock_me_put = server.mock(|when, then| {
             when.method(PUT);
@@ -595,10 +617,10 @@ mod tests {
         let port = server.port();
 
         let url: Url = format!("http://replacemeduh.com:{port}").parse().unwrap();
-        let key = test_api_key();
+        let key = TEST_AWS_CREDS_B64;
         let name = "output";
 
-        let aws_info = aws_creds(&key).unwrap();
+        let aws_info = aws_creds(key).unwrap();
         let creds = Credentials::new(aws_info.key, aws_info.secret);
         let mock_me = server.mock(|when, then| {
             when.method(POST);
@@ -612,12 +634,12 @@ mod tests {
 
     #[test]
     fn test_aws_keys() {
-        let test = test_api_key();
+        let test = TEST_AWS_CREDS_B64;
 
-        let results = aws_creds(&test).unwrap();
-        assert_eq!(results.bucket, TEST_AWS_BUCKET);
-        assert_eq!(results.region, TEST_AWS_REGION);
-        assert_eq!(results.key, TEST_AWS_KEY);
+        let results = aws_creds(test).unwrap();
+        assert_eq!(results.bucket, "blah");
+        assert_eq!(results.region, "us-east-2");
+        assert_eq!(results.key, TEST_AWS_KEY_ID);
         assert_eq!(results.secret, TEST_AWS_SECRET);
     }
 }

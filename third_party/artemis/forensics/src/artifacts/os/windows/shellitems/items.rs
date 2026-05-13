@@ -8,7 +8,7 @@
  */
 use super::{
     controlpanel::{parse_control_panel, parse_control_panel_entry},
-    delegate::get_delegate_shellitem,
+    delegate::{get_delegate_shellitem, parse_delegate_drive},
     directory::parse_directory,
     error::ShellItemError,
     game::parse_game,
@@ -20,15 +20,13 @@ use super::{
     uri::parse_uri,
     variable::{
         check_beef, check_game, check_mtp_folder, check_mtp_storage, check_property, check_zip,
+        parse_variable,
     },
     volume::parse_drive,
 };
-use crate::{
-    artifacts::os::windows::shellitems::variable::parse_variable,
-    utils::{
-        encoding::base64_decode_standard,
-        nom_helper::{Endian, nom_unsigned_one_byte, nom_unsigned_two_bytes},
-    },
+use crate::utils::{
+    encoding::base64_decode_standard,
+    nom_helper::{Endian, nom_unsigned_one_byte, nom_unsigned_two_bytes},
 };
 use common::windows::ShellItem;
 use log::error;
@@ -85,7 +83,7 @@ pub(crate) fn get_shellitem(data: &[u8]) -> nom::IResult<&[u8], ShellItem> {
 pub(crate) fn detect_shellitem(data: &[u8]) -> nom::IResult<&[u8], ShellItem> {
     let (input, item_type) = nom_unsigned_one_byte(data, Endian::Le)?;
     // Determine `ShellItem` using known IDs, signatures, and expected `ShellItem` size
-    let directory_items = [0x31, 0x30, 0x32, 0x35, 0xb2];
+    let directory_items = [0x31, 0x30, 0x32, 0x35, 0xb1, 0xb2];
     let drive_item = [0x2f, 0x23, 0x25, 0x29, 0x2a, 0x2e];
     let delegate = 0x74;
     let control_panel = 0x1;
@@ -94,8 +92,7 @@ pub(crate) fn detect_shellitem(data: &[u8]) -> nom::IResult<&[u8], ShellItem> {
     let ftp = 0x61;
     let root_property = 0x1f;
     let subroot = 0x1e;
-    let history = 0x69;
-    let history_directory = 0x65;
+    let history = [0x69, 0x65, 0x64];
 
     let beef0004 = [4, 0, 239, 190];
     let drive_property = 83;
@@ -122,6 +119,14 @@ pub(crate) fn detect_shellitem(data: &[u8]) -> nom::IResult<&[u8], ShellItem> {
         let drive_size = 23;
         if data.len() == drive_size || data.ends_with(&[0; 23]) {
             return parse_drive(input);
+        }
+
+        let delegate_size = 48;
+        let delegate_id = [
+            116, 26, 89, 94, 150, 223, 211, 72, 141, 103, 23, 51, 188, 238, 40, 186,
+        ];
+        if data.len() == delegate_size && data[16..32] == delegate_id {
+            return parse_delegate_drive(input);
         }
 
         if check_beef(data, &beef00) || data.len() < drive_size {
@@ -159,7 +164,7 @@ pub(crate) fn detect_shellitem(data: &[u8]) -> nom::IResult<&[u8], ShellItem> {
             return parse_property(input);
         }
         parse_root(input)?
-    } else if item_type == history || item_type == history_directory {
+    } else if history.contains(&item_type) {
         parse_history(input)?
     } else {
         parse_variable(data)?

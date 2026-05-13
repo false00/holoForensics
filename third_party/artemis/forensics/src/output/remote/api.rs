@@ -1,20 +1,27 @@
 use super::error::RemoteError;
-use crate::structs::toml::Output;
+use crate::{output::remote::data::prep_data_upload, structs::toml::Output};
 use log::error;
 use reqwest::{
     StatusCode,
     blocking::{Client, multipart},
 };
+use serde_json::Value;
 use std::{thread::sleep, time::Duration};
 
 /// Upload data to a remote server. For now we use our unique endpoint ID for authentication
-/// It should have been obtained from our initial enrollment when running in deamon mode
+/// It should have been obtained from our initial enrollment when running in daemon mode
 /// Inspired by osquery approach to remote uploads <https://osquery.readthedocs.io/en/stable/deployment/remote/>
 pub(crate) fn api_upload(
-    data: &[u8],
-    output: &Output,
-    output_name: &str,
+    serde_data: &mut Value,
+    output: &mut Output,
+    filename: &str,
+    start_time: u64,
+    artifact_name: &str,
 ) -> Result<(), RemoteError> {
+    // API uploads should always be compressed
+    output.compress = true;
+    let data = prep_data_upload(serde_data, output, "api", artifact_name, start_time)?;
+
     let api_url = if let Some(url) = &output.url {
         url
     } else {
@@ -23,38 +30,50 @@ pub(crate) fn api_upload(
 
     let client = Client::new();
 
-    let mut count = 0;
-    let max_attempts = 8;
-    let pause = 6;
-    while count < max_attempts {
+    let mut attempt = 1;
+    let max_attempts = 6;
+    let pause = 8;
+
+    loop {
         let mut builder = client.post(api_url);
         builder = builder.header("x-artemis-endpoint_id", &output.endpoint_id);
         builder = builder.header("x-artemis-collection_id", &output.collection_id.to_string());
         builder = builder.header("x-artemis-collection_name", &output.name);
         builder = builder.header("accept", "application/json");
+        builder = builder.header("Content-Encoding", "gzip");
 
-        let mut part = multipart::Part::bytes(data.to_vec());
-        part = part.file_name(output_name.to_string());
+        let mut part = multipart::Part::bytes(data.clone());
+        part = part.file_name(filename.to_string());
 
-        if output_name.ends_with(".log") {
+        if filename.ends_with(".log") {
             // The last two uploads for collections are just plaintext log files
             part = part.mime_str("text/plain").unwrap();
         } else {
-            builder = builder.header("Content-Encoding", "gzip");
             // Should be safe to unwrap?
             part = part.mime_str("application/jsonl").unwrap();
         }
+
         let form = multipart::Form::new().part("artemis-upload", part);
         builder = builder.multipart(form);
+
+        let jitter = fastrand::u32(..11) as usize;
+
+        let backoff = if attempt <= max_attempts {
+            pause * attempt + jitter
+        } else {
+            // If 6 attempts fail. Then backoff for 5 mins
+            300 + jitter
+        };
         let status = match builder.send() {
             Ok(result) => result,
             Err(err) => {
                 error!(
-                    "[forensics] Failed to upload data to {api_url}. Attempt {count}. Error: {err:?}"
+                    "[forensics] Failed to upload data to {api_url}. Attempt {attempt}. Error: {err:?}"
                 );
-                // Pause for 6 seconds between each attempt
-                sleep(Duration::from_secs(pause));
-                count += 1;
+
+                // Pause between each attempt
+                sleep(Duration::from_secs(backoff as u64));
+                attempt += 1;
                 continue;
             }
         };
@@ -62,11 +81,13 @@ pub(crate) fn api_upload(
             break;
         }
 
-        // Pause for 6 seconds between each attempt
-        sleep(Duration::from_secs(pause));
-        count += 1;
+        // Pause between each attempt
+        sleep(Duration::from_secs(backoff as u64));
+        attempt += 1;
     }
 
+    // Track output files
+    output.output_files.push(filename.to_string());
     Ok(())
 }
 
@@ -93,11 +114,8 @@ mod tests {
             url: Some(format!("http://127.0.0.1:{port}")),
             api_key: None,
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: None,
-            filter_script: None,
-            logging: None,
+            ..Default::default()
         }
     }
 
@@ -105,7 +123,7 @@ mod tests {
     fn test_api_upload() {
         let server = MockServer::start();
         let port = server.port();
-        let output = output_options("api_upload_test", "api", "tmp", false, port);
+        let mut output = output_options("api_upload_test", "api", "tmp", false, port);
 
         let mock_me = server.mock(|when, then| {
             when.method(POST).header("x-artemis-endpoint_id", "abcd");
@@ -115,7 +133,14 @@ mod tests {
         });
 
         let test = "A rust program";
-        api_upload(test.as_bytes(), &output, "uuid.gzip").unwrap();
+        api_upload(
+            &mut serde_json::to_value(&test).unwrap(),
+            &mut output,
+            "uuid",
+            0,
+            "test",
+        )
+        .unwrap();
         mock_me.assert();
     }
 
@@ -135,7 +160,14 @@ mod tests {
         });
 
         let test = "A rust program";
-        api_upload(test.as_bytes(), &output, "uuid.gzip").unwrap();
+        api_upload(
+            &mut serde_json::to_value(&test).unwrap(),
+            &mut output,
+            "uuid",
+            1,
+            "test",
+        )
+        .unwrap();
         mock_me.assert();
     }
 }

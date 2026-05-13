@@ -1,8 +1,9 @@
-use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, SecondsFormat, Utc};
+use super::error::ArtemisError;
+use super::nom_helper::nom_unsigned_two_bytes;
+use crate::utils::nom_helper::Endian;
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, SecondsFormat, TimeZone, Utc};
 use log::error;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-use super::error::ArtemisError;
 
 /// Return time now in seconds or 0
 pub(crate) fn time_now() -> u64 {
@@ -59,6 +60,10 @@ pub(crate) fn webkit_time_to_unixepoch(webkittime: i64) -> i64 {
 
 /// Convert Windows FAT time (UTC) values to `UnixEpoch`
 pub(crate) fn fattime_utc_to_unixepoch(fattime: &[u8]) -> i64 {
+    let minimum_length = 4;
+    if fattime.len() < minimum_length {
+        return 0;
+    }
     let result = get_fat_bits(fattime);
     let (_, (date, time)) = match result {
         Ok(result) => result,
@@ -78,6 +83,10 @@ pub(crate) fn fattime_utc_to_unixepoch(fattime: &[u8]) -> i64 {
     let year = ((date & year_hour_adjust) >> year_shift) + year_start;
     let month = (date & month_adjust) >> month_min_shift;
     let day = date & day_sec_adjust;
+
+    if month == 0 || day == 0 {
+        return 0;
+    }
 
     let sec_multi = 2;
     let min_adjust = 0x7e0;
@@ -101,7 +110,7 @@ pub(crate) fn fattime_utc_to_unixepoch(fattime: &[u8]) -> i64 {
     let ymd = if let Some(result) = ymd_opt {
         result
     } else {
-        error!("[time] Could not get FAT time year month day");
+        error!("[time] Could not get FAT time year month day: {year}-{month}-{day}");
         return 0;
     };
 
@@ -109,7 +118,7 @@ pub(crate) fn fattime_utc_to_unixepoch(fattime: &[u8]) -> i64 {
     let hms = if let Some(result) = hms_opt {
         result
     } else {
-        error!("[time] Could not get FAT time hour min sec");
+        error!("[time] Could not get FAT time hour min sec: {hour}:{min}:{second}");
         return 0;
     };
     let utc = NaiveDateTime::new(ymd, hms);
@@ -126,6 +135,12 @@ pub(crate) fn unixepoch_to_iso(timestamp: i64) -> String {
         Some(result) => result.to_rfc3339_opts(SecondsFormat::Millis, true),
         None => String::from("1970-01-01T00:00:00.000Z"),
     }
+}
+
+/// Convert `UnixEpoch` nanoseconds to ISO8601 format
+pub(crate) fn unixepoch_nanoseconds_to_iso(timestamp: i64) -> String {
+    Utc.timestamp_nanos(timestamp)
+        .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true)
 }
 
 /// Convert `UnixEpoch` to ISO8601 format
@@ -166,9 +181,6 @@ pub(crate) fn compare_timestamps(time1: &str, time2: &str) -> Result<bool, Artem
 
 /// Parse the bits in FAT timestamp
 fn get_fat_bits(fattime: &[u8]) -> nom::IResult<&[u8], (u32, u32)> {
-    use super::nom_helper::nom_unsigned_two_bytes;
-    use crate::utils::nom_helper::Endian;
-
     let (input, date) = nom_unsigned_two_bytes(fattime, Endian::Le)?;
     let (input, time) = nom_unsigned_two_bytes(input, Endian::Le)?;
 
@@ -221,6 +233,11 @@ mod tests {
         let (_, (date, time)) = get_fat_bits(&test_data).unwrap();
         assert_eq!(date, 20347);
         assert_eq!(time, 3779);
+    }
+
+    #[test]
+    fn test_fattime_utc_to_unixepoch_bad() {
+        assert_eq!(fattime_utc_to_unixepoch(&[]), 0);
     }
 
     #[test]

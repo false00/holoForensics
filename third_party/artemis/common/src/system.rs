@@ -14,9 +14,20 @@ pub struct SystemInfo {
     pub memory: Memory,
     pub interfaces: Vec<NetworkInterface>,
     pub performance: LoadPerformance,
-    pub version: String,
+    pub artemis_version: String,
+    pub artemis_commit: String,
+    pub artemis_args: String,
+    pub artemis_features: String,
+    pub artemis_target: String,
+    pub artemis_profile: String,
     pub rust_version: String,
     pub build_date: String,
+    pub product_name: String,
+    pub product_family: String,
+    pub product_serial: String,
+    pub product_uuid: String,
+    pub product_version: String,
+    pub vendor: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -27,7 +38,7 @@ pub struct SystemInfoMetadata {
     pub platform: String,
     pub performance: LoadPerformance,
     pub interfaces: Vec<NetworkInterface>,
-    pub version: String,
+    pub artemis_version: String,
     pub rust_version: String,
     pub build_date: String,
 }
@@ -50,6 +61,7 @@ pub struct DiskDrives {
     pub total_space: u64,
     pub available_space: u64,
     pub removable: bool,
+    pub name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

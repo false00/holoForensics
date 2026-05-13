@@ -3,7 +3,7 @@ use crate::filesystem::error::FileSystemError;
 use common::windows::AttributeFlags;
 use log::{error, warn};
 use ntfs::{
-    Ntfs, NtfsAttribute, NtfsAttributeType, NtfsError, NtfsFile, NtfsFileReference, NtfsReadSeek,
+    Ntfs, NtfsAttribute, NtfsAttributeType, NtfsError, NtfsFile, NtfsReadSeek,
     attribute_value::NtfsAttributeValue,
     structured_values::{NtfsAttributeList, NtfsFileName},
 };
@@ -27,12 +27,13 @@ pub(crate) fn get_filename_attribute(
 
 /// Get attribute data by walking the attribute list until we find our attribute or reading the attribute directly. Returns a vec data from the data runs
 pub(crate) fn get_attribute_data(
-    ntfs_ref: NtfsFileReference,
+    //ntfs_ref: NtfsFileReference,
+    ntfs_file: &NtfsFile<'_>,
     ntfs: &Ntfs,
     fs: &mut BufReader<SectorReader<File>>,
     attribute: &str,
 ) -> Result<Vec<u8>, NtfsError> {
-    let ntfs_file = ntfs_ref.to_file(ntfs, fs)?;
+    //let ntfs_file = ntfs_ref.to_file(ntfs, fs)?;
     let attr_raw = ntfs_file.attributes_raw();
 
     let mut attr_data = Vec::new();
@@ -59,11 +60,11 @@ pub(crate) fn get_attribute_data(
                 }
 
                 let mut value = entry_attr.value(fs)?;
-                let all_data = read_attribute_data(&mut value, fs, &entry_attr)?;
+                let mut all_data = read_attribute_data(&mut value, fs, &entry_attr)?;
                 if all_data.is_empty() {
                     continue;
                 }
-                attr_data = all_data;
+                attr_data.append(&mut all_data);
             }
         } else if attr.ty()? == NtfsAttributeType::Data {
             let attr_name = attr.name()?;
@@ -71,14 +72,14 @@ pub(crate) fn get_attribute_data(
                 continue;
             }
             let mut value = attr.value(fs)?;
-
-            let all_data = read_attribute_data(&mut value, fs, &attr)?;
+            let mut all_data = read_attribute_data(&mut value, fs, &attr)?;
             if all_data.is_empty() {
                 continue;
             }
-            attr_data = all_data;
+            attr_data.append(&mut all_data);
         }
     }
+
     Ok(attr_data)
 }
 
@@ -105,14 +106,13 @@ pub(crate) fn read_attribute_data(
     fs: &mut BufReader<SectorReader<File>>,
     entry_attr: &NtfsAttribute<'_, '_>,
 ) -> Result<Vec<u8>, NtfsError> {
-    let mut all_data = Vec::new();
     // If attribute data is resident, just read the all the data. Resident data is very small
     if entry_attr.is_resident() {
-        let mut resident_data = raw_read_data(value, fs)?;
-        all_data.append(&mut resident_data);
-        return Ok(all_data);
+        let resident_data = raw_read_data(value, fs)?;
+        return Ok(resident_data);
     }
 
+    let mut all_data = Vec::new();
     // Grab non-resident attribute data
     if let NtfsAttributeValue::NonResident(non_resident) = value {
         let attribute_data_len = entry_attr.value_length() as usize;
@@ -124,7 +124,7 @@ pub(crate) fn read_attribute_data(
             let mut temp_run = data_run?;
 
             // We only want the non-sparse data runs
-            if temp_run.data_position() == None.into() {
+            if temp_run.data_position().value().is_none() {
                 continue;
             }
 
@@ -159,6 +159,7 @@ pub(crate) fn read_attribute_data(
             all_data = all_data[0..attribute_data_len].to_vec();
         }
     }
+
     Ok(all_data)
 }
 
@@ -322,13 +323,16 @@ mod tests {
 
             // $MAX attribute is 32 bytes should be resident data
             let data = get_attribute_data(
-                filelist.file,
+                &filelist
+                    .file
+                    .to_file(&ntfs_parser.ntfs, &mut ntfs_parser.fs)
+                    .unwrap(),
                 &ntfs_parser.ntfs,
                 &mut ntfs_parser.fs,
                 "$Max",
             )
             .unwrap();
-            assert_eq!(data.len(), 32);
+            assert!(data.len() > 30);
             break;
         }
     }

@@ -56,11 +56,12 @@ pub(crate) fn parse_custom<'a>(
         // Now take the header size and lnk_data size and nom them together
         let (_, lnk_data) = take(header.len() + lnk_data.len())(input)?;
 
-        let (_, lnk_info) = get_shortcut_data(lnk_data)?;
+        let (_, mut lnk_info) = get_shortcut_data(lnk_data)?;
+        lnk_info.evidence = path.to_string();
 
         let list = JumplistEntry {
             lnk_info,
-            path: path.to_string(),
+            evidence: path.to_string(),
             jumplist_type: ListType::Custom,
             app_id: get_filename(path)
                 .split('.')
@@ -94,7 +95,6 @@ pub(crate) fn parse_custom<'a>(
 }
 
 #[cfg(test)]
-#[cfg(target_os = "windows")]
 mod tests {
     use crate::{
         artifacts::os::windows::jumplists::custom::parse_custom, filesystem::files::read_file,
@@ -106,7 +106,7 @@ mod tests {
     fn test_parse_custom() {
         let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         test_location.push(
-            "tests\\test_data\\windows\\jumplists\\win10\\custom\\1ced32d74a95c7bc.customDestinations-ms",
+            "tests/test_data/windows/jumplists/win10/custom/1ced32d74a95c7bc.customDestinations-ms",
         );
         let data = read_file(&test_location.display().to_string()).unwrap();
         let (_, result) = parse_custom(&data, &test_location.display().to_string()).unwrap();

@@ -15,13 +15,13 @@
  * `https://github.com/Velocidex/velociraptor`
  */
 use super::{error::LnkError, header::LnkHeader, shortcut::get_shortcut_data};
-use crate::filesystem::files::{list_files, read_file};
+use crate::filesystem::{files::read_file, metadata::glob_paths};
 use common::windows::ShortcutInfo;
 use log::error;
 
 /// `Shortcut` files can be location anywhere. Provide a directory and parse any `lnk` (`Shortcut`) files
 pub(crate) fn grab_lnk_directory(path: &str) -> Result<Vec<ShortcutInfo>, LnkError> {
-    let files_results = list_files(path);
+    let files_results = glob_paths(path);
     let files = match files_results {
         Ok(results) => results,
         Err(err) => {
@@ -32,10 +32,13 @@ pub(crate) fn grab_lnk_directory(path: &str) -> Result<Vec<ShortcutInfo>, LnkErr
 
     let mut shortcut_info = Vec::new();
     for file in files {
-        let result = grab_lnk_file(&file);
+        if !file.is_file {
+            continue;
+        }
+        let result = grab_lnk_file(&file.full_path);
         match result {
             Ok(info) => shortcut_info.push(info),
-            Err(_err) => error!("[shortcuts] Failed to parse file: {file}"),
+            Err(_err) => error!("[shortcuts] Failed to parse file: {}", file.full_path),
         }
     }
     Ok(shortcut_info)
@@ -52,7 +55,7 @@ pub(crate) fn grab_lnk_file(path: &str) -> Result<ShortcutInfo, LnkError> {
         }
     };
     let mut shortcut_info = parse_lnk_data(&lnk_data)?;
-    shortcut_info.source_path = path.to_string();
+    shortcut_info.evidence = path.to_string();
     Ok(shortcut_info)
 }
 
@@ -107,7 +110,7 @@ mod tests {
                     continue;
                 }
                 let result = grab_lnk_file(&file).unwrap();
-                assert_eq!(result.source_path.ends_with("lnk"), true);
+                assert_eq!(result.evidence.ends_with("lnk"), true);
             }
         }
     }
@@ -267,7 +270,7 @@ mod tests {
     #[test]
     fn test_grab_lnk_directory() {
         let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        test_location.push("tests/test_data/windows/lnk/win11");
+        test_location.push("tests/test_data/windows/lnk/win11/*");
         let result = grab_lnk_directory(&test_location.display().to_string()).unwrap();
 
         assert_eq!(result.len(), 5);

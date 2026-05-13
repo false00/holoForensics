@@ -16,6 +16,7 @@ pub struct OpendirectoryUsers {
     pub unlock_options: Vec<String>,
     pub home_path: Vec<String>,
     pub uuid: Vec<String>,
+    pub evidence: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -26,9 +27,10 @@ pub struct OpendirectoryGroups {
     pub users: Vec<String>,
     pub groupmembers: Vec<String>,
     pub uuid: Vec<String>,
+    pub evidence: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Default)]
 pub struct BookmarkData {
     /**Path to file to run */
     pub path: String,
@@ -72,9 +74,12 @@ pub struct BookmarkData {
     pub is_executable: bool,
     /**Does target file have file reference flag */
     pub file_ref_flag: bool,
+    pub url_string: String,
+    pub volume_depth: i32,
+    pub target_filename: String,
 }
 
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Serialize, PartialEq, Deserialize)]
 pub enum TargetFlags {
     RegularFile,
     Directory,
@@ -95,7 +100,7 @@ pub enum TargetFlags {
     MountTrigger,
 }
 
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Serialize, PartialEq, Deserialize)]
 pub enum CreationFlags {
     MinimalBookmark,
     SuitableBookmark,
@@ -105,7 +110,7 @@ pub enum CreationFlags {
     PreferFileIDResolutionMask,
 }
 
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Serialize, PartialEq, Deserialize)]
 pub enum VolumeFlags {
     Local,
     Automount,
@@ -178,7 +183,7 @@ pub struct EmondData {
     pub criterion: Vec<Dictionary>,
     pub variables: Vec<Dictionary>,
     pub emond_clients_enabled: bool,
-    pub source_file: String,
+    pub evidence: String,
     pub plist_created: String,
     pub plist_modified: String,
     pub plist_changed: String,
@@ -260,9 +265,10 @@ pub struct ExecPolicy {
     pub revocation_check_time: String,
     pub scan_version: i64,
     pub top_policy_match: i64,
+    pub evidence: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct FsEvents {
     /**Flags associated with `FsEvent` record */
     pub flags: Vec<String>,
@@ -272,24 +278,24 @@ pub struct FsEvents {
     pub node: u64,
     /**Event ID for the `FsEvent` record */
     pub event_id: u64,
-    pub source: String,
-    pub source_created: String,
-    pub source_modified: String,
-    pub source_changed: String,
-    pub source_accessed: String,
+    pub evidence: String,
+    pub evidence_created: String,
+    pub evidence_modified: String,
+    pub evidence_changed: String,
+    pub evidence_accessed: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct LaunchdPlist {
     pub launchd_data: Dictionary,
-    pub plist_path: String,
+    pub evidence: String,
     pub created: String,
     pub modified: String,
     pub accessed: String,
     pub changed: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Default, Deserialize)]
 pub struct LoginItemsData {
     /**Path to file to run */
     pub path: String,
@@ -340,7 +346,7 @@ pub struct LoginItemsData {
     /**Does target file have file reference flag */
     pub file_ref_flag: bool,
     /**Path to `LoginItem` source */
-    pub source_path: String,
+    pub evidence: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -404,7 +410,7 @@ pub struct SpotlightEntries {
     pub store_id: usize,
     pub last_updated: String,
     pub values: HashMap<String, SpotlightValue>,
-    pub directory: String,
+    pub evidence: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -413,7 +419,7 @@ pub struct SpotlightValue {
     pub value: Value,
 }
 
-#[derive(Debug, PartialEq, Serialize, Clone, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Clone, Deserialize, Copy)]
 pub enum DataAttribute {
     AttrBool,
     AttrUnknown,

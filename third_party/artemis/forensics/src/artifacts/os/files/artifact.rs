@@ -22,20 +22,28 @@ pub(crate) fn filelisting(
         depth: options.depth.unwrap_or(1) as usize,
         metadata: options.metadata.unwrap_or(false),
         yara: options.yara.as_ref().unwrap_or(&String::new()).clone(),
-        path_filter: options
-            .regex_filter
+        path_regex: options
+            .path_regex
             .as_ref()
             .unwrap_or(&String::new())
             .clone(),
+        filename_regex: options
+            .filename_regex
+            .as_ref()
+            .unwrap_or(&String::new())
+            .clone(),
+        exclude_directories: options
+            .exclude_directories
+            .as_ref()
+            .unwrap_or(&Vec::new())
+            .clone(),
     };
-    let artifact_result = get_filelist(&args, &hashes, output, filter);
-    match artifact_result {
-        Ok(results) => Ok(results),
-        Err(err) => {
-            error!("[forensics] Failed to get file listing: {err:?}");
-            Err(FileError::Filelisting)
-        }
+    if let Err(err) = get_filelist(args, &hashes, output, filter) {
+        error!("[forensics] Failed to get file listing: {err:?}");
+        return Err(FileError::Filelisting);
     }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -51,15 +59,9 @@ mod tests {
             directory: directory.to_string(),
             format: String::from("jsonl"),
             compress,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: Some(String::new()),
-            filter_script: Some(String::new()),
-            logging: Some(String::new()),
+            ..Default::default()
         }
     }
 
@@ -75,8 +77,10 @@ mod tests {
             md5: Some(false),
             sha1: Some(false),
             sha256: Some(false),
-            regex_filter: Some(String::new()),
+            path_regex: None,
+            filename_regex: None,
             yara: None,
+            exclude_directories: None,
         };
         let status = filelisting(&mut output, false, &file_config).unwrap();
         assert_eq!(status, ());
@@ -94,8 +98,10 @@ mod tests {
             md5: Some(false),
             sha1: Some(false),
             sha256: Some(false),
-            regex_filter: Some(String::new()),
+            path_regex: None,
+            filename_regex: None,
             yara: None,
+            exclude_directories: None,
         };
         let status = filelisting(&mut output, false, &file_config).unwrap();
         assert_eq!(status, ());

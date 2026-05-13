@@ -40,7 +40,7 @@ fn get_artifact(artifact: &str) -> Artifacts {
         "usnjrnl" => Artifacts::UsnJrnl,
         "wmipersist" => Artifacts::Wmi,
         "services" => Artifacts::Services,
-        "jumplist" => Artifacts::Jumplist,
+        "jumplists" => Artifacts::Jumplist,
         "eventlogs" => Artifacts::Eventlogs,
         "emond" => Artifacts::Emond,
         "launchd" => Artifacts::LaunchDaemon,
@@ -57,6 +57,7 @@ fn get_artifact(artifact: &str) -> Artifacts {
         "sudologs-linux" => Artifacts::SudoLinux,
         "users-windows" => Artifacts::UsersWindows,
         "connections" => Artifacts::Connections,
+        "ext4files" => Artifacts::Ext4Files,
         _ => Artifacts::Unknown,
     }
 }
@@ -91,7 +92,7 @@ mod tests {
             "usnjrnl",
             "wmipersist",
             "services",
-            "jumplist",
+            "jumplists",
             "eventlogs",
             "emond",
             "launchd",
@@ -107,6 +108,7 @@ mod tests {
             "logons",
             "sudologs-linux",
             "users-windows",
+            "ext4files",
             "connections",
         ];
 

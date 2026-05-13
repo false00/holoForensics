@@ -13,9 +13,7 @@ pub enum ArtemisError {
     ReadXml,
     UtfType,
     Encoding,
-    #[cfg(feature = "yarax")]
     YaraRule,
-    #[cfg(feature = "yarax")]
     YaraScan,
     BadTime,
     Protobuf,
@@ -37,9 +35,7 @@ impl fmt::Display for ArtemisError {
             ArtemisError::ReadXml => write!(f, "Failed to read XML"),
             ArtemisError::UtfType => write!(f, "Failed to determine UTF XML type"),
             ArtemisError::Encoding => write!(f, "Failed to parse decoding/encoding"),
-            #[cfg(feature = "yarax")]
             ArtemisError::YaraRule => write!(f, "Failed to add rule"),
-            #[cfg(feature = "yarax")]
             ArtemisError::YaraScan => write!(f, "Failed to scan file"),
             ArtemisError::BadTime => write!(f, "Failed to parse rfc 33339 timestamp"),
             ArtemisError::Protobuf => write!(f, "Failed to parse protobuf bytes"),

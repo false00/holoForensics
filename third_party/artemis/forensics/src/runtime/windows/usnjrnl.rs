@@ -1,11 +1,11 @@
 use crate::{
-    artifacts::os::windows::usnjrnl::parser::grab_usnjrnl,
+    artifacts::os::windows::usnjrnl::parser::grab_usnjrnl_path,
     runtime::helper::{char_arg, string_arg},
     structs::artifacts::os::windows::UsnJrnlOptions,
 };
 use boa_engine::{Context, JsArgs, JsError, JsResult, JsValue, js_string};
 
-/// Expose parsing usnjrnl located on systemdrive to `BoaJS`
+/// Expose parsing usnjrnl located on system drive to `BoaJS`
 pub(crate) fn js_usnjrnl(
     _this: &JsValue,
     args: &[JsValue],
@@ -29,10 +29,10 @@ pub(crate) fn js_usnjrnl(
 
     let options = UsnJrnlOptions {
         alt_drive: drive,
-        alt_path: path,
+        alt_file: path,
         alt_mft: mft_path,
     };
-    let jrnl = match grab_usnjrnl(&options) {
+    let jrnl = match grab_usnjrnl_path(&options) {
         Ok(result) => result,
         Err(err) => {
             let issue = format!("Failed to get usnjrnl: {err:?}");
@@ -59,15 +59,9 @@ mod tests {
             directory: directory.to_string(),
             format: String::from("json"),
             compress,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: None,
-            filter_script: None,
-            logging: None,
+            ..Default::default()
         }
     }
 

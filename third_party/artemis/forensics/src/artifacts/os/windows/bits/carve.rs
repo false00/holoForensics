@@ -1,5 +1,5 @@
 use crate::utils::nom_helper::{Endian, nom_unsigned_four_bytes, nom_unsigned_sixteen_bytes};
-use common::windows::{BitsInfo, FileInfo, JobFlags, JobInfo, JobPriority, JobState, JobType};
+use common::windows::{BitsInfo, FileInfo, JobInfo, JobType};
 use nom::bytes::complete::take_until;
 
 use super::{
@@ -10,7 +10,11 @@ use super::{
 pub(crate) type WinBits = (Vec<BitsInfo>, Vec<JobInfo>, Vec<FileInfo>);
 
 /// Attempt to carve out BITS data by looking for known job and file delimiters
-pub(crate) fn carve_bits(data: &[u8], is_legacy: bool) -> nom::IResult<&[u8], WinBits> {
+pub(crate) fn carve_bits<'a>(
+    data: &'a [u8],
+    is_legacy: bool,
+    evidence: &str,
+) -> nom::IResult<&'a [u8], WinBits> {
     let job_delimiters = vec![
         [
             147, 54, 32, 53, 160, 12, 16, 74, 132, 243, 177, 126, 123, 73, 156, 215,
@@ -69,32 +73,11 @@ pub(crate) fn carve_bits(data: &[u8], is_legacy: bool) -> nom::IResult<&[u8], Wi
                 continue;
             }
 
-            let mut job = JobInfo {
-                job_id: String::new(),
-                file_id: String::new(),
-                owner_sid: String::new(),
-                created: String::new(),
-                modified: String::new(),
-                expiration: String::new(),
-                completed: String::new(),
-                job_name: String::new(),
-                job_description: String::new(),
-                job_command: String::new(),
-                job_arguments: String::new(),
-                error_count: 0,
-                job_type: JobType::Unknown,
-                job_state: JobState::Unknown,
-                priority: JobPriority::Unknown,
-                flags: JobFlags::Unknown,
-                http_method: String::new(),
-                acls: Vec::new(),
-                additional_sids: Vec::new(),
-                transient_error_count: 0,
-                retry_delay: 0,
-                timeout: 0,
-                target_path: String::new(),
+            let mut job = JobInfo::default();
+            let input = match parse_job(hit_data, &mut job, carve) {
+                Ok((result, _)) => result,
+                Err(_err) => break,
             };
-            let (input, _) = parse_job(hit_data, &mut job, carve)?;
 
             if is_legacy {
                 let (remaining_input, file) = get_legacy_files(input, is_legacy, carve)?;
@@ -102,7 +85,7 @@ pub(crate) fn carve_bits(data: &[u8], is_legacy: bool) -> nom::IResult<&[u8], Wi
 
                 job_data = remaining_input;
                 let carved = true;
-                bits.push(combine_file_and_job(&job, &file, carved));
+                bits.push(combine_file_and_job(job, file, carved, evidence));
                 continue;
             }
             let remaining_input_result = job_details(input, &mut job, is_legacy);
@@ -151,40 +134,46 @@ pub(crate) fn carve_bits(data: &[u8], is_legacy: bool) -> nom::IResult<&[u8], Wi
 }
 
 /// The legacy BITS format has both job and file info in same structure, we combine them both here into one structure
-pub(crate) fn combine_file_and_job(job: &JobInfo, file: &FileInfo, carved: bool) -> BitsInfo {
+pub(crate) fn combine_file_and_job(
+    job: JobInfo,
+    file: FileInfo,
+    carved: bool,
+    evidence: &str,
+) -> BitsInfo {
     BitsInfo {
-        job_id: job.job_id.clone(),
-        file_id: job.file_id.clone(),
-        owner_sid: job.owner_sid.clone(),
-        created: job.created.clone(),
-        modified: job.modified.clone(),
-        completed: job.completed.clone(),
-        files_total: file.files_transferred,
+        job_id: job.job_id,
+        file_id: file.file_id,
+        owner_sid: job.owner_sid,
+        created: job.created,
+        modified: job.modified,
+        completed: job.completed,
         bytes_downloaded: file.download_bytes_size,
         bytes_transferred: file.transfer_bytes_size,
-        job_name: job.job_name.clone(),
-        job_description: job.job_description.clone(),
-        job_command: job.job_command.clone(),
-        job_arguments: job.job_arguments.clone(),
+        job_name: job.job_name,
+        job_description: job.job_description,
+        job_command: job.job_command,
+        job_arguments: job.job_arguments,
         error_count: job.error_count,
-        job_type: job.job_type.clone(),
-        job_state: job.job_state.clone(),
-        priority: job.priority.clone(),
-        flags: job.flags.clone(),
-        http_method: job.http_method.clone(),
-        full_path: file.full_path.clone(),
-        filename: file.filename.clone(),
-        target_path: job.target_path.clone(),
-        tmp_file: file.tmp_fullpath.clone(),
-        volume: file.volume.clone(),
-        url: file.url.clone(),
+        job_type: job.job_type,
+        job_state: job.job_state,
+        priority: job.priority,
+        flags: job.flags,
+        http_method: job.http_method,
+        full_path: file.full_path,
+        filename: file.filename,
+        target_path: job.target_path,
+        volume: file.volume,
+        url: file.url,
         carved,
-        expiration: job.expiration.clone(),
+        expiration: job.expiration,
         transient_error_count: job.transient_error_count,
-        acls: job.acls.clone(),
+        acls: job.acls,
         timeout: job.timeout,
         retry_delay: job.retry_delay,
-        additional_sids: job.additional_sids.clone(),
+        additional_sids: job.additional_sids,
+        drive: file.drive,
+        tmp_fullpath: file.tmp_fullpath,
+        evidence: evidence.to_string(),
     }
 }
 
@@ -198,7 +187,7 @@ pub(crate) fn scan_delimiter<'a>(data: &'a [u8], delimiter: &[u8]) -> nom::IResu
 mod tests {
     use super::{carve_bits, combine_file_and_job, scan_delimiter};
     use crate::filesystem::files::read_file;
-    use common::windows::{FileInfo, JobFlags, JobInfo, JobPriority, JobState, JobType};
+    use common::windows::{FileInfo, JobInfo};
     use std::path::PathBuf;
 
     #[test]
@@ -207,11 +196,13 @@ mod tests {
         test_location.push("tests/test_data/windows/bits/win81/qmgr0.dat");
         let data = read_file(test_location.to_str().unwrap()).unwrap();
 
-        let (_, (results, _, _)) = carve_bits(&data, true).unwrap();
+        let (_, (results, _, _)) =
+            carve_bits(&data, true, test_location.to_str().unwrap()).unwrap();
         assert_eq!(results.len(), 20);
         assert_eq!(results[1].job_name, "WU Client Download");
         assert_eq!(results[3].bytes_downloaded, 0);
         assert_eq!(results[18].job_id, "38efd4fb-5c6a-4c7c-b58e-4ef7fa7a349b");
+        assert!(results[3].evidence.ends_with("qmgr0.dat"))
     }
 
     #[test]
@@ -220,8 +211,9 @@ mod tests {
         test_location.push("tests/test_data/windows/ese/win10/qmgr.db");
         let data = read_file(test_location.to_str().unwrap()).unwrap();
 
-        let (_, (_, jobs, files)) = carve_bits(&data, false).unwrap();
-        assert_eq!(jobs.len(), 86);
+        let (_, (_, jobs, files)) =
+            carve_bits(&data, false, test_location.to_str().unwrap()).unwrap();
+        assert_eq!(jobs.len(), 106);
         assert_eq!(files.len(), 41);
 
         assert_eq!(jobs[1].job_name, "PreSignInSettingsConfigJSON");
@@ -244,31 +236,7 @@ mod tests {
 
     #[test]
     fn test_combine_file_and_job() {
-        let job = JobInfo {
-            job_id: String::new(),
-            file_id: String::new(),
-            owner_sid: String::new(),
-            created: String::new(),
-            modified: String::new(),
-            expiration: String::new(),
-            completed: String::new(),
-            job_name: String::new(),
-            job_description: String::new(),
-            job_command: String::new(),
-            job_arguments: String::new(),
-            error_count: 0,
-            job_type: JobType::Unknown,
-            job_state: JobState::Unknown,
-            priority: JobPriority::Unknown,
-            flags: JobFlags::Unknown,
-            http_method: String::new(),
-            acls: Vec::new(),
-            additional_sids: Vec::new(),
-            transient_error_count: 0,
-            retry_delay: 0,
-            timeout: 0,
-            target_path: String::new(),
-        };
+        let job = JobInfo::default();
 
         let file = FileInfo {
             file_id: String::new(),
@@ -283,8 +251,9 @@ mod tests {
             files_transferred: 0,
         };
 
-        let bit_info = combine_file_and_job(&job, &file, true);
+        let bit_info = combine_file_and_job(job, file, true, "test");
         assert_eq!(bit_info.carved, true);
+        assert_eq!(bit_info.evidence, "test");
     }
 
     #[test]

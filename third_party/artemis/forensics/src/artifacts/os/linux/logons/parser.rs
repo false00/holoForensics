@@ -11,23 +11,26 @@
  * Other Parsers:
  *  `https://github.com/Velocidex/velociraptor`
  */
-use super::logon::{Logon, Status};
-use crate::{filesystem::files::file_reader, structs::artifacts::os::linux::LogonOptions};
+use crate::{
+    artifacts::os::linux::logons::logon::logon_reader, filesystem::files::file_reader,
+    structs::artifacts::os::linux::LogonOptions,
+};
+use common::linux::{Logon, Status};
 use log::{error, warn};
 
 /// Grab all logon data from default paths
 pub(crate) fn grab_logons(options: &LogonOptions) -> Vec<Logon> {
-    let paths = if let Some(alt_file) = &options.alt_file {
-        vec![alt_file.clone()]
-    } else {
-        vec![
-            String::from("/var/run/utmp"),
-            String::from("/var/log/wtmp"),
-            String::from("/var/log/btmp"),
-        ]
-    };
-
     let mut logons = Vec::new();
+
+    if let Some(alt_file) = &options.alt_file {
+        grab_logon_file(alt_file, &mut logons);
+        return logons;
+    }
+    let paths = vec![
+        String::from("/var/run/utmp"),
+        String::from("/var/log/wtmp"),
+        String::from("/var/log/btmp"),
+    ];
 
     for path in paths {
         grab_logon_file(&path, &mut logons);
@@ -58,7 +61,7 @@ pub(crate) fn grab_logon_file(path: &str, logons: &mut Vec<Logon>) {
         Status::Success
     };
 
-    let mut logon = Logon::logon_reader(&mut reader, &status);
+    let mut logon = logon_reader(&mut reader, status, path);
 
     logons.append(&mut logon);
 }

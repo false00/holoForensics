@@ -1,5 +1,5 @@
-use crate::artifacts::os::systeminfo::info::get_info;
-use boa_engine::{Context, JsResult, JsValue, js_string};
+use crate::artifacts::os::systeminfo::info::{get_info, hostname};
+use boa_engine::{Context, JsBigInt, JsResult, JsValue, js_string};
 
 /// Expose pulling systeminfo to `BoaJS`
 pub(crate) fn js_get_systeminfo(
@@ -20,7 +20,7 @@ pub(crate) fn js_uptime(
     _args: &[JsValue],
     _context: &mut Context,
 ) -> JsResult<JsValue> {
-    Ok(JsValue::BigInt(sysinfo::System::uptime().into()))
+    Ok(JsValue::new::<JsBigInt>(sysinfo::System::uptime().into()))
 }
 
 /// Return hostname of the system
@@ -29,12 +29,7 @@ pub(crate) fn js_hostname(
     _args: &[JsValue],
     _context: &mut Context,
 ) -> JsResult<JsValue> {
-    Ok(
-        js_string!(
-            sysinfo::System::host_name().unwrap_or_else(|| String::from("Unknown hostname"))
-        )
-        .into(),
-    )
+    Ok(js_string!(hostname()).into())
 }
 
 /// Return OS version of the system
@@ -86,15 +81,9 @@ mod tests {
             directory: directory.to_string(),
             format: String::from("json"),
             compress,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: None,
-            filter_script: None,
-            logging: None,
+            ..Default::default()
         }
     }
 

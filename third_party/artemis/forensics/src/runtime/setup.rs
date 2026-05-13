@@ -55,6 +55,7 @@ pub(crate) fn run_script(script: &str, args: &[String]) -> Result<Value, Runtime
     if result.is_undefined() {
         return Ok(Value::Null);
     }
+
     let value = match result.to_json(&mut context) {
         Ok(result) => result,
         Err(err) => {
@@ -72,7 +73,8 @@ struct Queue {
     jobs: RefCell<VecDeque<NativeJob>>,
 }
 
-// From boa example: https://github.com/boa-dev/boa/blob/294ebd8788914cf2b807e743377aa03c58d7d534/examples/src/bin/tokio_event_loop.rs
+// From boa example:
+// https://github.com/boa-dev/boa/blob/294ebd8788914cf2b807e743377aa03c58d7d534/examples/src/bin/tokio_event_loop.rs
 impl Queue {
     fn new() -> Self {
         Self {
@@ -232,6 +234,7 @@ pub(crate) fn run_async_script(script: &str, args: &[String]) -> Result<Value, R
                 if js_value.is_undefined() {
                     return Ok(Value::Null);
                 }
+
                 let value = match js_value.to_json(&mut context) {
                     Ok(result) => result,
                     Err(err) => {

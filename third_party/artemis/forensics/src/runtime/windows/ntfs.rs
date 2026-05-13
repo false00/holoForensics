@@ -15,7 +15,7 @@ pub(crate) fn js_read_raw_file(
     let data = match raw_read_file(&path) {
         Ok(result) => result,
         Err(err) => {
-            let issue = format!("Failed to get read file {path}: {err:?}");
+            let issue = format!("Failed to raw read file {path}: {err:?}");
             return Err(JsError::from_opaque(js_string!(issue).into()));
         }
     };
@@ -56,15 +56,9 @@ mod tests {
             directory: directory.to_string(),
             format: String::from("json"),
             compress,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: None,
-            filter_script: None,
-            logging: None,
+            ..Default::default()
         }
     }
 

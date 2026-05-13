@@ -21,7 +21,6 @@ use crate::{
     structs::{artifacts::os::windows::EventLogsOptions, toml::Output},
     utils::{environment::get_systemdrive, regex_options::create_regex, time::time_now},
 };
-use chrono::SecondsFormat;
 use common::windows::{EventLogRecord, EventMessage};
 use evtx::EvtxParser;
 use log::{error, warn};
@@ -83,14 +82,16 @@ pub(crate) fn parse_eventlogs(
     let mut eventlog_records = Vec::new();
     // Regex always correct
     let param_regex = create_regex(r"(%\d!.*?!)|(%\d+)").unwrap();
+    let value_regex = create_regex(r"%%\d+").unwrap();
 
     for record in evt_parser.records_json_value().skip(offset) {
         match record {
             Ok(data) => {
                 let event_record = EventLogRecord {
                     event_record_id: data.event_record_id,
-                    timestamp: data.timestamp.to_rfc3339_opts(SecondsFormat::Nanos, true),
+                    timestamp: data.timestamp.to_string(),
                     data: data.data,
+                    evidence: path.to_string(),
                 };
                 eventlog_records.push(event_record);
             }
@@ -108,8 +109,8 @@ pub(crate) fn parse_eventlogs(
         let mut all_messages = Vec::new();
         let mut raw_messages = Vec::new();
         for record in eventlog_records {
-            let mut message = if let Some(result) =
-                add_message_strings(&record, resource, &param_regex)
+            let message = if let Some(result) =
+                add_message_strings(&record, resource, &param_regex, &value_regex, path)
             {
                 result
             } else {
@@ -121,7 +122,6 @@ pub(crate) fn parse_eventlogs(
                 continue;
             };
 
-            message.source_file = path.to_string();
             all_messages.push(message);
         }
         (all_messages, raw_messages)
@@ -138,8 +138,8 @@ fn default_eventlogs(
     filter: bool,
     options: &EventLogsOptions,
 ) -> Result<(), EventLogsError> {
-    let path = if options.alt_dir.is_some() {
-        options.alt_dir.as_ref().unwrap()
+    let path = if let Some(alt_dir) = &options.alt_dir {
+        alt_dir
     } else {
         let drive_result = get_systemdrive();
         let drive = match drive_result {
@@ -294,17 +294,18 @@ fn read_eventlogs(
     };
 
     let mut eventlog_records: Vec<EventLogRecord> = Vec::new();
-    let limit = 10000;
+    let limit = 1000;
     // Regex always correct
     let param_regex = create_regex(r"(%\d!.*?!)|(%\d+)").unwrap();
-
+    let value_regex = create_regex(r"%%\d+").unwrap();
     for record in evt_parser.records_json_value() {
         match record {
             Ok(data) => {
                 let event_record = EventLogRecord {
                     event_record_id: data.event_record_id,
-                    timestamp: data.timestamp.to_rfc3339_opts(SecondsFormat::Nanos, true),
+                    timestamp: data.timestamp.to_string(),
                     data: data.data,
+                    evidence: path.to_string(),
                 };
                 eventlog_records.push(event_record);
             }
@@ -319,8 +320,8 @@ fn read_eventlogs(
                 let mut all_messages = Vec::new();
                 let mut raw_messages = Vec::new();
                 for record in eventlog_records {
-                    let mut message = if let Some(result) =
-                        add_message_strings(&record, resource, &param_regex)
+                    let message = if let Some(result) =
+                        add_message_strings(&record, resource, &param_regex, &value_regex, path)
                     {
                         result
                     } else {
@@ -332,7 +333,6 @@ fn read_eventlogs(
                         continue;
                     };
 
-                    message.source_file = path.to_string();
                     all_messages.push(message);
                 }
                 (serde_json::to_value(&all_messages), raw_messages)
@@ -370,8 +370,8 @@ fn read_eventlogs(
             let mut all_messages = Vec::new();
             let mut raw_messages = Vec::new();
             for record in eventlog_records {
-                let mut message = if let Some(result) =
-                    add_message_strings(&record, resource, &param_regex)
+                let message = if let Some(result) =
+                    add_message_strings(&record, resource, &param_regex, &value_regex, path)
                 {
                     result
                 } else {
@@ -382,7 +382,6 @@ fn read_eventlogs(
                     raw_messages.push(record);
                     continue;
                 };
-                message.source_file = path.to_string();
                 all_messages.push(message);
             }
             (serde_json::to_value(&all_messages), raw_messages)
@@ -435,11 +434,8 @@ fn output_logs(
     // Skip adding metadata to the output if we are just dumping templates
     if raw {
         let status = raw_json(serde_data, name, output);
-        if status.is_err() {
-            error!(
-                "[eventlogs] Could not output raw json results: {:?}",
-                status.unwrap_err()
-            );
+        if let Err(result) = status {
+            error!("[eventlogs] Could not output raw json results: {result:?}");
         }
         return Ok(());
     }
@@ -472,15 +468,9 @@ mod tests {
             directory: directory.to_string(),
             format: String::from("jsonl"),
             compress,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: None,
-            filter_script: None,
-            logging: None,
+            ..Default::default()
         }
     }
 

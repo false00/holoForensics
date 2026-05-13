@@ -14,36 +14,14 @@ pub(crate) fn add_message_strings(
     log: &EventLogRecord,
     resources: &StringResource,
     param_regex: &Regex,
+    value_regex: &Regex,
+    evidence: &str,
 ) -> Option<EventMessage> {
     let mut message = EventMessage {
-        message: String::new(),
-        template_message: String::new(),
-        raw_event_data: Value::Null,
-        event_id: 0,
-        qualifier: 0,
-        version: 0,
-        guid: String::new(),
-        provider: String::new(),
-        source_name: String::new(),
         record_id: log.event_record_id,
-        task: 0,
-        level: EventLevel::Unknown,
-        opcode: 0,
-        keywords: String::new(),
         generated: log.timestamp.clone(),
-        system_time: String::new(),
-        activity_id: String::new(),
-        process_id: 0,
-        thread_id: 0,
-        sid: String::new(),
-        channel: String::new(),
-        computer: String::new(),
-        source_file: String::new(),
-        message_file: String::new(),
-        parameter_file: String::new(),
-        registry_file: String::new(),
-        registry_path: String::new(),
-        rendering_info: None,
+        evidence: evidence.to_string(),
+        ..Default::default()
     };
     let meta = log
         .data
@@ -95,6 +73,7 @@ pub(crate) fn add_message_strings(
     message.activity_id = get_activity_id(&log.data)?;
 
     let qualifier_check = 16;
+    // If a qualifier is present we need to combine with the eventID in order to get our "real" eventID
     // https://github.com/libyal/libevtx/blob/main/documentation/Windows%20XML%20Event%20Log%20(EVTX).asciidoc#message-string-identifier
     let real_event_id = (event_id.qualifier << qualifier_check) | event_id.id;
 
@@ -147,7 +126,7 @@ pub(crate) fn add_message_strings(
     // If we have parameter files. Then we extract the message from it. There should only be one?
     for file in parameter_files {
         let template = resources.templates.get(file);
-        if template.is_none() {
+        if template.is_none() || template?.message_table.is_none() {
             continue;
         }
 
@@ -208,9 +187,14 @@ pub(crate) fn add_message_strings(
             };
 
             message.template_message = table.message.clone();
-
-            message.message =
-                merge_strings_message_table(&log.data, table, param_regex, &param_message_table)?;
+            message.message = merge_strings_message_table(
+                &log.data,
+                table,
+                param_regex,
+                value_regex,
+                &param_message_table,
+            )?;
+            clean_message(&mut message);
             return Some(message);
         }
 
@@ -226,15 +210,31 @@ pub(crate) fn add_message_strings(
         {
             result
         } else {
-            // try one more time
+            // Try quick adjustment
             let previous_version = 1;
-            match manifist_template.definitions.get(&format!(
+            if let Some(result) = manifist_template.definitions.get(&format!(
                 "{}_{}",
                 event_id.id,
                 (message.version - previous_version)
             )) {
-                Some(result) => result,
-                None => continue,
+                result
+            } else {
+                // Last try. If we cannot find definitions for our template from eventID and version.
+                // We may have a qualifier we can use to find our message from the messagetable
+                let table = match message_table?.get(&(real_event_id as u32)) {
+                    Some(result) => result,
+                    None => continue,
+                };
+                message.template_message = table.message.clone();
+                message.message = merge_strings_message_table(
+                    &log.data,
+                    table,
+                    param_regex,
+                    value_regex,
+                    &param_message_table,
+                )?;
+                clean_message(&mut message);
+                return Some(message);
             }
         };
 
@@ -244,6 +244,10 @@ pub(crate) fn add_message_strings(
             id = event_id.id as u32;
         }
 
+        if message_table.is_none() {
+            message.message = merge_strings_no_manifest(&log.data)?;
+            return Some(message);
+        }
         let table_opt = message_table?.get(&id);
         let table = if let Some(result) = table_opt {
             result
@@ -260,8 +264,14 @@ pub(crate) fn add_message_strings(
 
         // If we do not have any templates. Can just try messagetable only
         if event_definition.template.is_none() {
-            message.message =
-                merge_strings_message_table(&log.data, table, param_regex, &param_message_table)?;
+            message.message = merge_strings_message_table(
+                &log.data,
+                table,
+                param_regex,
+                value_regex,
+                &param_message_table,
+            )?;
+            clean_message(&mut message);
             return Some(message);
         }
 
@@ -272,11 +282,21 @@ pub(crate) fn add_message_strings(
             table,
             event_definition,
             param_regex,
+            value_regex,
             &param_message_table,
         )?;
         break;
     }
 
+    // If the message is empty. Just combine the raw strings
+    // Message may be empty due to:
+    //  - EventLog provider strings missing
+    //  - EventLog data is null
+    if message.message.is_empty() {
+        message.message = merge_strings_no_manifest(&log.data)?;
+    }
+
+    clean_message(&mut message);
     Some(message)
 }
 
@@ -572,6 +592,7 @@ fn merge_strings(
     table: &MessageTable,
     manifest: &Definition,
     param_regex: &Regex,
+    value_regex: &Regex,
     parameter_message: &HashMap<u32, MessageTable>,
 ) -> Option<String> {
     let mut data = log.as_object()?.get("Event")?;
@@ -621,11 +642,8 @@ fn merge_strings(
         }
 
         let num_result = param.get(1..)?.parse();
-        if num_result.is_err() {
-            error!(
-                "[eventlogs] Could not get parameter for log message: {:?}",
-                num_result.unwrap_err()
-            );
+        if let Err(status) = num_result {
+            error!("[eventlogs] Could not get parameter for log message: {status:?}");
             continue;
         }
         let param_num = num_result.unwrap_or(0);
@@ -643,7 +661,8 @@ fn merge_strings(
         // If element list is too small, then we use the list of values from the event data
         if element_list.len() < (param_num - adjust_id) {
             let value = data_values.get(param_num - adjust_id)?;
-            clean_message = add_event_string(value, clean_message, param, parameter_message)?;
+            clean_message =
+                add_event_string(value, clean_message, param, value_regex, parameter_message)?;
             continue;
         }
 
@@ -673,7 +692,8 @@ fn merge_strings(
             // Event Viewer can resolve these enums somehow (Ex: IntendedPackageState - Installed). Currently we cannot
             // Other EventLog parsers also cannot seem to resolve either
 
-            clean_message = add_event_string(value, clean_message, param, parameter_message)?;
+            clean_message =
+                add_event_string(value, clean_message, param, value_regex, parameter_message)?;
             continue;
         }
 
@@ -682,12 +702,9 @@ fn merge_strings(
             // If we fail to find the attribute name. Return the parameter (%1)
             // Sometimes happens if we try to mix eventlogs and template strings from different systems
             let value = event_data.get(&attribute.value).unwrap_or(&default);
-            clean_message = add_event_string(value, clean_message, param, parameter_message)?;
+            clean_message =
+                add_event_string(value, clean_message, param, value_regex, parameter_message)?;
         }
-    }
-
-    if clean_message.contains("TEMP_ARTEMIS_VALUE") {
-        clean_message = clean_message.replace("TEMP_ARTEMIS_VALUE", "%");
     }
 
     Some(clean_message)
@@ -698,37 +715,84 @@ fn add_event_string(
     value: &Value,
     mut message: String,
     param: &str,
+    value_regex: &Regex,
     parameter_message: &HashMap<u32, MessageTable>,
 ) -> Option<String> {
+    // Sometimes EventLog data values are a string of multiple raw parameter IDs (ex: "%%1538\r\n%%1539")
+    // Below is an example EventLog message rendered by artemis (from Github CI runner)
+    // We use regex to loop through them all and replace each instance with the corresponding string from the MessageTable
+    /*Ex:
+        An operation was attempted on a privileged object.
+
+        Subject:
+            Security ID:		S-1-5-21-2533572477-1596584739-2037617746-500
+            Account Name:		packer
+            Account Domain:		pkrvm7mpva0bvys
+            Logon ID:		0x604c7
+
+        Object:
+            Object Server:	Security
+            Object Type:	Key
+            Object Name:	\REGISTRY\MACHINE\SYSTEM\ControlSet001\Control\MUI\Settings
+            Object Handle:	0x580
+
+        Process Information:
+            Process ID:	0x1b90
+            Process Name:	C:\Windows\System32\Sysprep\sysprep.exe
+
+        Requested Operation:
+            Desired Access:	%%1537 <-- String of multiple raw Event data
+                        %%1538
+                        %%1539
+                        %%1540
+                        %%4432
+                        %%4433
+                        %%4434
+                        %%4435
+                        %%4436
+                        %%4437
+
+            Privileges:		SeTakeOwnershipPrivilege
+    */
     if value.as_str().is_some_and(|s| s.starts_with("%%")) {
         if parameter_message.is_empty() {
             warn!("[eventlogs] Got parameter message id {value:?} but no parameter message table");
             return Some(message);
         }
 
-        let num_result = value.as_str()?.get(2..)?.parse();
-        if num_result.is_err() {
-            warn!(
-                "[eventlogs] Could not get parameter message id for log message: {:?}",
-                num_result.unwrap_err()
-            );
-            return Some(message);
-        }
-
-        let param_message_id: u32 = num_result.unwrap_or_default();
-
-        let param_message_value = if let Some(result) = parameter_message.get(&param_message_id) {
-            result
-        } else {
-            // Try one more time
-            let adjust = 0xffff;
-            match parameter_message.get(&(param_message_id & adjust)) {
-                Some(result) => result,
-                None => return Some(message),
+        // Unwrap is safe since we check to make sure its a string above
+        let mut raw_param_id = value.as_str().unwrap().to_string();
+        // Use our Regex to match on all parameter IDs in the evtx data
+        // Replace each one from with a MessageTable string
+        for found in value_regex.find_iter(value.as_str().unwrap()) {
+            let match_value = found.as_str();
+            if !match_value.starts_with("%%") {
+                continue;
             }
-        };
 
-        message = message.replacen(param, &param_message_value.message, 1);
+            let num_result = match_value.get(2..)?.parse();
+            if let Err(status) = num_result {
+                warn!(
+                    "[eventlogs] Could not get parameter message id: {status:?}. Value: {value:?}"
+                );
+                return Some(message);
+            }
+            let param_message_id: u32 = num_result.unwrap_or_default();
+            let param_message_value = if let Some(result) = parameter_message.get(&param_message_id)
+            {
+                result
+            } else {
+                // Try one more time
+                let adjust = 0xffff;
+                match parameter_message.get(&(param_message_id & adjust)) {
+                    Some(result) => result,
+                    None => return Some(message),
+                }
+            };
+
+            raw_param_id = raw_param_id.replacen(match_value, &param_message_value.message, 1);
+        }
+        message = message.replacen(param, &raw_param_id, 1);
         return Some(message);
     }
 
@@ -768,6 +832,7 @@ fn merge_strings_message_table(
     log: &Value,
     table: &MessageTable,
     param_regex: &Regex,
+    value_regex: &Regex,
     parameter_message: &HashMap<u32, MessageTable>,
 ) -> Option<String> {
     let mut clean_message = clean_table(&table.message);
@@ -831,11 +896,8 @@ fn merge_strings_message_table(
         }
 
         let num_result = param.get(1..)?.parse();
-        if num_result.is_err() {
-            error!(
-                "[eventlogs] Could not get parameter for log message: {:?}",
-                num_result.unwrap_err()
-            );
+        if let Err(status) = num_result {
+            error!("[eventlogs] Could not get parameter for log message: {status:?}");
             continue;
         }
 
@@ -852,7 +914,8 @@ fn merge_strings_message_table(
         }
 
         let value = values.get(param_num - adjust_id)?;
-        clean_message = add_event_string(value, clean_message, param, parameter_message)?;
+        clean_message =
+            add_event_string(value, clean_message, param, value_regex, parameter_message)?;
     }
 
     Some(clean_message)
@@ -913,6 +976,26 @@ fn clean_table(message: &str) -> String {
     clean
 }
 
+/// Make sure we remove any temporary modifications made to the message
+fn clean_message(event: &mut EventMessage) {
+    // When `add_event_string` is called we may replace '%' in Event Data to ensure that we do not merge them with a template string that starts with '%'
+    /*
+     * Ex:
+     * Event data value: %3{Where-Object eq $v}
+     * Template string:  Test %%%1
+     *
+     * We match against %%1 and replace it with %3{Where-Object eq $v}
+     * The new value would be 'Test %%3{Where-Object eq $v}' Which would mess up our regex that looks for '%%<number>'
+     * By temporary replacing '%3{Where-Object eq $v}' with 'TEMP_ARTEMIS_VALUE3{Where-Object eq $v}'
+     * We can avoid that.
+     *
+     * We restore the original value below
+     */
+    if event.message.contains("TEMP_ARTEMIS_VALUE") {
+        event.message = event.message.replace("TEMP_ARTEMIS_VALUE", "%");
+    }
+}
+
 #[cfg(test)]
 #[cfg(target_os = "windows")]
 mod tests {
@@ -920,7 +1003,7 @@ mod tests {
     use crate::{
         artifacts::os::windows::eventlogs::{
             combine::{
-                add_event_string, clean_table, get_guid, get_level, get_meta_number,
+                add_event_string, clean_message, clean_table, get_guid, get_level, get_meta_number,
                 get_meta_string, get_proc_thread, get_provider, get_sid, get_systemtime, raw_data,
             },
             strings::get_resources,
@@ -928,7 +1011,7 @@ mod tests {
         filesystem::files::read_file,
         utils::regex_options::create_regex,
     };
-    use common::windows::{EventLevel, EventLogRecord};
+    use common::windows::{EventLevel, EventLogRecord, EventMessage};
     use serde_json::{Value, json};
     use std::{collections::HashMap, path::PathBuf};
 
@@ -956,10 +1039,19 @@ mod tests {
             "parameter_large_log.json",
             "params_with_percent_log.json",
             "userdata_event_log.json",
+            "rdp.json",
+            "surface_firmware.json",
+            "surface.json",
+            "application_cert.json",
+            "system_missing.json",
+            "configuration.json",
+            "powershell.json",
+            "parameter_value.json",
         ];
 
         let resources = get_resources().unwrap();
         let params = create_regex(r"(%\d!.*?!)|(%\d+)").unwrap();
+        let value_regex = create_regex(r"%%\d+").unwrap();
 
         for sample in samples {
             test_location.push(sample);
@@ -967,8 +1059,10 @@ mod tests {
             let log: EventLogRecord = serde_json::from_slice(&data).unwrap();
 
             test_location.pop();
+            let evidence = "test";
 
-            let message = add_message_strings(&log, &resources, &params).unwrap();
+            let message =
+                add_message_strings(&log, &resources, &params, &value_regex, evidence).unwrap();
 
             assert!(!message.message.contains("%%"));
             assert!(!message.message.contains("TEMP_ARTEMIS_VALUE"));
@@ -1078,7 +1172,7 @@ mod tests {
                         message.registry_path,
                         "ROOT\\Microsoft\\Windows\\CurrentVersion\\WINEVT\\Publishers\\{9988748e-c2e8-4054-85f6-0c3e1cad2470}"
                     );
-                    assert_eq!(message.source_file, "");
+                    assert_eq!(message.evidence, evidence);
                     assert_eq!(message.source_name, "");
                     assert_eq!(message.computer, "DESKTOP-9FSUKAJ");
                     assert_eq!(message.generated, "2024-08-03T06:50:04.072688000Z");
@@ -1115,7 +1209,7 @@ mod tests {
                     );
                 }
                 "null_no_provider_log.json" => {
-                    assert!(message.message.is_empty());
+                    assert_eq!(message.message, "null");
                 }
                 "too_many_params_log.json" => {
                     // Outlook may not be installed on system
@@ -1143,6 +1237,69 @@ mod tests {
                         message.message,
                         "Send RDMA Endpoint notification failure - 6\r\n"
                     );
+                }
+                "rdp.json" => {
+                    assert_eq!(
+                        message.message,
+                        "RDP ClientActiveX is trying to connect to the server (661A05F4-9841-47C3-9429-FFAF99228DE5)\r\n"
+                    );
+                    assert_eq!(
+                        message.template_message,
+                        "RDP ClientActiveX is trying to connect to the server (%2)\r\n"
+                    )
+                }
+                "surface_firmware.json" => {
+                    // Requires Surface device
+                    if message.message.starts_with("Component Firmware") {
+                        assert_eq!(
+                            message.message,
+                            "Component Firmware Update Driver: CurrentFirmwareVersion=0x3b002389, HardwareId=HID\\VEN_MSHW&DEV_0461&REV_0001&Col04, InstanceId=, ComponentId=0x15\r\n"
+                        );
+                        assert_eq!(
+                            message.message_file,
+                            "C:\\Windows\\System32\\DriverStore\\FileRepository\\surfacecfuoverhid.inf_arm64_609569469e0aea00\\SurfaceCFUOverHid.dll"
+                        );
+                    }
+                }
+                "surface.json" => {
+                    if message.message.starts_with("Surface Firmware") {
+                        assert_eq!(
+                            message.message,
+                            "Surface Firmware Update Driver: Hardware Id HID\\VEN_MSHW&DEV_0461&REV_0001&Col04: ntStatus 3221225487 No HID Transport/Protocol Configuration Information Available!\r\n"
+                        );
+                    }
+                }
+                "application_cert.json" => {
+                    assert_eq!(
+                        message.message,
+                        "The \"Microsoft Pluton Cryptographic Provider\" provider was not loaded because initialization failed.\r\n"
+                    )
+                }
+                "system_missing.json" => {
+                    // The Eventlog provider for this message is missing on Windows 11 24H2 (ARM64)
+                    assert_eq!(
+                        message.message,
+                        "Data:\n #text: [\"PROV++\",\"PackageVersion: 2025.403.1\",\"ImageName: aoc1-home-consumer-dsi-oembr-2024.808.9383184\",\"ImageProductName: oembr\",\"ImageVersion: 2024.808.9383184\"]\nBinary: null\n"
+                    );
+                    assert_eq!(message.event_id, 318);
+                }
+                "configuration.json" => {
+                    // The Eventlog provider for this message is missing on Windows 11 24H2 (ARM64)
+                    assert_eq!(
+                        message.message,
+                        "Sid: S-1-5-18\nCommand line: \"netsh\" advfirewall firewall delete rule name=\"CodeMeter Runtime Server\"\nParent Process 1: C:\\Windows\\SysWOW64\\netsh.exe\nParent Process 2: C:\\Windows\\SysWOW64\\msiexec.exe\nParent Process 3: C:\\Windows\\System32\\msiexec.exe\nParent Process 4: C:\\Windows\\System32\\services.exe\nParent Process 5: C:\\Windows\\System32\\wininit.exe\nParent Process 6: \nParent Process 7: \nParent Process 8: \nParent Process 9: \nParent Process 10: \n"
+                    );
+                    assert_eq!(message.event_id, 1);
+                }
+                "powershell.json" => {
+                    assert!(!message.message.contains("TEMP_ARTEMIS_VALUE"));
+                }
+                "parameter_value.json" => {
+                    assert!(
+                        message
+                            .message
+                            .contains("Success Added\r\n, Failure added\r\n\r\n")
+                    )
                 }
                 _ => panic!("should not have an unknown sample?"),
             }
@@ -1301,7 +1458,18 @@ mod tests {
     fn test_add_event_string() {
         let value = Value::String(String::from("love"));
         let test = String::from("i really %1 windows eventlogs! /s");
-        let result = add_event_string(&value, test, "%1", &HashMap::new()).unwrap();
+        let value_regex = create_regex(r"%%\d+").unwrap();
+        let result = add_event_string(&value, test, "%1", &value_regex, &HashMap::new()).unwrap();
         assert_eq!(result, "i really love windows eventlogs! /s");
+    }
+
+    #[test]
+    fn test_clean_message() {
+        let mut test = EventMessage {
+            message: String::from("testTEMP_ARTEMIS_VALUE"),
+            ..Default::default()
+        };
+        clean_message(&mut test);
+        assert!(!test.message.contains("TEMP_ARTEMIS_VALUE"))
     }
 }

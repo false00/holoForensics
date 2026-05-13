@@ -9,6 +9,8 @@ pub enum TaskError {
     FixedSection,
     VariableSection,
     Jobs,
+    Serialize,
+    Registry,
 }
 
 impl std::error::Error for TaskError {}
@@ -23,6 +25,8 @@ impl fmt::Display for TaskError {
             TaskError::FixedSection => write!(f, "Could not parse fixed data"),
             TaskError::VariableSection => write!(f, "Could not parse variable data"),
             TaskError::Jobs => write!(f, "Could not get jobs"),
+            TaskError::Serialize => write!(f, "Could not serialize tasks"),
+            TaskError::Registry => write!(f, "Could not read task Registry"),
         }
     }
 }

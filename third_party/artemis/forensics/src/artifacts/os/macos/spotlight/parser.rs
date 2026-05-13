@@ -26,8 +26,8 @@ pub(crate) fn grab_spotlight(
     output: &mut Output,
     filter: bool,
 ) -> Result<(), SpotlightError> {
-    let paths = if let Some(alt_path) = &options.alt_path {
-        vec![format!("{alt_path}/*")]
+    let paths = if let Some(alt_dir) = &options.alt_dir {
+        vec![format!("{alt_dir}/*")]
     } else {
         let mut additional_stores = false;
         if let Some(extra) = &options.include_additional {
@@ -70,15 +70,9 @@ mod tests {
             directory: directory.to_string(),
             format: String::from("json"),
             compress,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: Some(String::new()),
-            filter_script: Some(String::new()),
-            logging: Some(String::new()),
+            ..Default::default()
         }
     }
 
@@ -88,7 +82,7 @@ mod tests {
 
         grab_spotlight(
             &SpotlightOptions {
-                alt_path: None,
+                alt_dir: None,
                 include_additional: Some(true),
             },
             &mut output,

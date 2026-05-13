@@ -23,11 +23,8 @@ pub(crate) fn systeminfo(output: &mut Output, filter: bool) -> Result<(), System
     let output_name = "systeminfo";
     let status = output_data(&mut serde_data, output_name, output, start_time, filter);
 
-    if status.is_err() {
-        error!(
-            "[forensics] Could not output process data: {:?}",
-            status.unwrap_err()
-        );
+    if let Err(result) = status {
+        error!("[forensics] Could not output sysinfo data: {result:?}");
     }
 
     Ok(())
@@ -43,15 +40,9 @@ mod tests {
             directory: directory.to_string(),
             format: String::from("jsonl"),
             compress,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: Some(String::new()),
-            filter_script: Some(String::new()),
-            logging: Some(String::new()),
+            ..Default::default()
         }
     }
 

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub(crate) struct ClientResponse {
     url: String,
     status: u16,
@@ -175,15 +175,9 @@ mod tests {
             directory: directory.to_string(),
             format: String::from("json"),
             compress,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: None,
-            filter_script: None,
-            logging: None,
+            ..Default::default()
         }
     }
 

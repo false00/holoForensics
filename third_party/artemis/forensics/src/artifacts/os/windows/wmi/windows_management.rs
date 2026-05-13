@@ -5,6 +5,7 @@ use crate::{
     artifacts::os::windows::{securitydescriptor::sid::grab_sid, wmi::index::parse_index},
     filesystem::files::read_file,
 };
+use base16ct::upper::encode_str;
 use common::windows::WmiPersist;
 use log::{error, warn};
 use md5::Md5;
@@ -64,7 +65,10 @@ pub(crate) fn parse_wmi_repo(
 /*
  * After parsing WMI repo, extract persistence data
  */
-pub(crate) fn get_wmi_persist(namespace_data: &[ClassValues]) -> Result<Vec<WmiPersist>, WmiError> {
+pub(crate) fn get_wmi_persist(
+    namespace_data: &[ClassValues],
+    evidence: &str,
+) -> Result<Vec<WmiPersist>, WmiError> {
     let mut persist_vec = Vec::new();
     // Small tracker when looping through the data
     let mut hits = HashSet::new();
@@ -89,16 +93,19 @@ pub(crate) fn get_wmi_persist(namespace_data: &[ClassValues]) -> Result<Vec<WmiP
                     filter: String::new(),
                     consumer: String::new(),
                     consumer_name: String::new(),
+                    evidence: evidence.to_string(),
                 };
                 assemble_wmi_persist(event_consumer, filter_consumer, event_filter, &mut persist);
                 let mut md5 = Md5::new();
                 let bytes = serde_json::to_vec(&persist).unwrap_or_default();
                 md5.update(&bytes);
                 let hash = md5.finalize();
+                let mut buf = [0u8; 32];
+                let md5_string = encode_str(&hash, &mut buf).unwrap_or_default().to_string();
 
-                if !persist.class.is_empty() && !hits.contains(&format!("{hash:x}")) {
+                if !persist.class.is_empty() && !hits.contains(&md5_string) {
                     persist_vec.push(persist);
-                    hits.insert(format!("{hash:x}"));
+                    hits.insert(md5_string);
                     break;
                 }
             }
@@ -222,7 +229,10 @@ pub(crate) fn hash_name(name: &str) -> String {
     }
     hash.update(class_data);
     let hash_name = hash.finalize();
-    format!("{hash_name:x}").to_uppercase()
+    let mut buf = [0u8; 64];
+    encode_str(&hash_name, &mut buf)
+        .unwrap_or_default()
+        .to_string()
 }
 
 #[cfg(test)]
@@ -263,7 +273,7 @@ mod tests {
         let index_path = format!("{drive}:\\Windows\\System32\\wbem\\Repository\\INDEX.BTR");
         let results = parse_wmi_repo(&map_paths, &objects_path, &index_path).unwrap();
 
-        let _ = get_wmi_persist(&results).unwrap();
+        let _ = get_wmi_persist(&results, "repo").unwrap();
     }
 
     #[test]
@@ -297,6 +307,7 @@ mod tests {
                         filter: String::new(),
                         consumer: String::new(),
                         consumer_name: String::new(),
+                        evidence: String::new(),
                     };
                     assemble_wmi_persist(
                         event_consumer,

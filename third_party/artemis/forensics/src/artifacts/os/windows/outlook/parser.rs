@@ -66,11 +66,10 @@ pub(crate) fn grab_outlook(
 
     for path in paths {
         let status = grab_outlook_file(&path.full_path, options, filter, output);
-        if status.is_err() {
+        if let Err(result) = status {
             error!(
-                "[outlook] Could not extract messages from {}: {:?}",
-                path.full_path,
-                status.unwrap_err()
+                "[outlook] Could not extract messages from {}: {result:?}",
+                path.full_path
             );
         }
     }
@@ -100,18 +99,13 @@ fn grab_outlook_file(
 
     let plat = get_platform();
     if plat != "Windows" {
-        let reader = setup_outlook_reader(path)?;
-        let buf_reader = BufReader::new(reader);
+        return read_outlook_file(path, &runner, output);
+    }
 
-        let mut outlook_reader = OutlookReader {
-            fs: buf_reader,
-            block_btree: Vec::new(),
-            node_btree: Vec::new(),
-            format: FormatType::Unknown,
-            // This will get updated when parsing starts
-            size: 4096,
-        };
-        return read_outlook(&mut outlook_reader, None, &runner, output);
+    // Prefer normal file I/O when an explicit path is readable. Fall back to raw NTFS
+    // only for live OST files that are locked by Windows.
+    if setup_outlook_reader(path).is_ok() {
+        return read_outlook_file(path, &runner, output);
     }
 
     // Windows we default to parsing the NTFS in order to bypass locked OST
@@ -135,6 +129,26 @@ fn grab_outlook_file(
     };
 
     read_outlook(&mut outlook_reader, Some(&ntfs_file), &runner, output)
+}
+
+fn read_outlook_file(
+    path: &str,
+    options: &OutlookRunner,
+    output: &mut Output,
+) -> Result<(), OutlookError> {
+    let reader = setup_outlook_reader(path)?;
+    let buf_reader = BufReader::new(reader);
+
+    let mut outlook_reader = OutlookReader {
+        fs: buf_reader,
+        block_btree: Vec::new(),
+        node_btree: Vec::new(),
+        format: FormatType::Unknown,
+        // This will get updated when parsing starts
+        size: 4096,
+    };
+
+    read_outlook(&mut outlook_reader, None, options, output)
 }
 
 struct OutlookRunner {
@@ -374,7 +388,7 @@ fn message_details<T: std::io::Seek + std::io::Read>(
         attachments: Vec::new(),
         properties: message.props,
         folder_path: format!("{folder_path}/{folder}"),
-        source_file: options.source.clone(),
+        evidence: options.source.clone(),
         yara_hits: Vec::new(),
     };
 
@@ -501,15 +515,9 @@ mod tests {
             directory: "./tmp".to_string(),
             format: String::from("jsonl"),
             compress: false,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: "local".to_string(),
-            filter_name: None,
-            filter_script: None,
-            logging: None,
+            ..Default::default()
         };
 
         grab_outlook(&options, &mut out, false).unwrap()
@@ -535,15 +543,9 @@ mod tests {
             directory: "./tmp".to_string(),
             format: String::from("jsonl"),
             compress: false,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: "local".to_string(),
-            filter_name: None,
-            filter_script: None,
-            logging: None,
+            ..Default::default()
         };
 
         grab_outlook(&options, &mut out, false).unwrap()
@@ -566,15 +568,9 @@ mod tests {
             directory: "./tmp".to_string(),
             format: String::from("jsonl"),
             compress: false,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: "local".to_string(),
-            filter_name: None,
-            filter_script: None,
-            logging: None,
+            ..Default::default()
         };
 
         grab_outlook(&options, &mut out, false).unwrap()

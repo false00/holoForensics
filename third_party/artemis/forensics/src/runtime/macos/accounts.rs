@@ -17,7 +17,7 @@ pub(crate) fn js_users_macos(
         Some(string_arg(args, 0)?)
     };
 
-    let users = grab_users(&MacosUsersOptions { alt_path: path });
+    let users = grab_users(&MacosUsersOptions { alt_dir: path });
     let results = serde_json::to_value(&users).unwrap_or_default();
     let value = JsValue::from_json(&results, context)?;
 
@@ -35,7 +35,7 @@ pub(crate) fn js_groups_macos(
     } else {
         Some(string_arg(args, 0)?)
     };
-    let groups = grab_groups(&MacosGroupsOptions { alt_path: path });
+    let groups = grab_groups(&MacosGroupsOptions { alt_dir: path });
 
     let results = serde_json::to_value(&groups).unwrap_or_default();
     let value = JsValue::from_json(&results, context)?;
@@ -56,15 +56,9 @@ mod tests {
             directory: directory.to_string(),
             format: String::from("jsonl"),
             compress,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: Some(String::new()),
-            filter_script: Some(String::new()),
-            logging: Some(String::new()),
+            ..Default::default()
         }
     }
 

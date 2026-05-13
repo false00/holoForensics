@@ -1,6 +1,9 @@
 use crate::artifacts::os::linux::error::LinuxArtifactError;
+use crate::artifacts::os::linux::ext4::parser::ext4_filelisting;
 use crate::artifacts::output::output_artifact;
-use crate::structs::artifacts::os::linux::{JournalOptions, LinuxSudoOptions, LogonOptions};
+use crate::structs::artifacts::os::linux::{
+    Ext4Options, JournalOptions, LinuxSudoOptions, LogonOptions,
+};
 use crate::structs::toml::Output;
 use crate::utils::time;
 use log::{error, warn};
@@ -15,16 +18,12 @@ pub(crate) fn journals(
     filter: bool,
     options: &JournalOptions,
 ) -> Result<(), LinuxArtifactError> {
-    let start_time = time::time_now();
-
-    let artifact_result = grab_journal(output, start_time, filter, options);
-    match artifact_result {
-        Ok(result) => Ok(result),
-        Err(err) => {
-            error!("[forensics] Failed to get journals: {err:?}");
-            Err(LinuxArtifactError::Journal)
-        }
+    if let Err(err) = grab_journal(output, filter, options) {
+        error!("[forensics] Failed to get journals: {err:?}");
+        return Err(LinuxArtifactError::Journal);
     }
+
+    Ok(())
 }
 
 /// Get Linux `Logon` info
@@ -35,8 +34,11 @@ pub(crate) fn logons(
 ) -> Result<(), LinuxArtifactError> {
     let start_time = time::time_now();
 
-    let result = grab_logons(options);
-    let serde_data_result = serde_json::to_value(result);
+    let entries = grab_logons(options);
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
         Err(err) => {
@@ -58,15 +60,18 @@ pub(crate) fn sudo_logs_linux(
     let start_time = time::time_now();
 
     let sudo_results = grab_sudo_logs(options);
-    let sudo_data = match sudo_results {
+    let entries = match sudo_results {
         Ok(results) => results,
         Err(err) => {
             warn!("[forensics] Failed to get sudo log data: {err:?}");
             return Err(LinuxArtifactError::SudoLog);
         }
     };
+    if entries.is_empty() {
+        return Ok(());
+    }
 
-    let serde_data_result = serde_json::to_value(sudo_data);
+    let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
         Err(err) => {
@@ -79,6 +84,20 @@ pub(crate) fn sudo_logs_linux(
     output_data(&mut serde_data, output_name, output, start_time, filter)
 }
 
+/// Parse the ext4 filesystem
+pub(crate) fn ext4_filelist(
+    output: &mut Output,
+    filter: bool,
+    options: &Ext4Options,
+) -> Result<(), LinuxArtifactError> {
+    if let Err(err) = ext4_filelisting(options, output, filter) {
+        error!("[forensics] Failed to get ext4 filelisting: {err:?}");
+        return Err(LinuxArtifactError::Ext4);
+    }
+
+    Ok(())
+}
+
 /// Output Linux artifacts
 pub(crate) fn output_data(
     serde_data: &mut Value,
@@ -88,11 +107,8 @@ pub(crate) fn output_data(
     filter: bool,
 ) -> Result<(), LinuxArtifactError> {
     let status = output_artifact(serde_data, output_name, output, start_time, filter);
-    if status.is_err() {
-        error!(
-            "[forensics] Could not output data: {:?}",
-            status.unwrap_err()
-        );
+    if let Err(result) = status {
+        error!("[forensics] Could not output data: {result:?}");
         return Err(LinuxArtifactError::Output);
     }
     Ok(())
@@ -101,12 +117,16 @@ pub(crate) fn output_data(
 #[cfg(test)]
 #[cfg(target_os = "linux")]
 mod tests {
-    use serde_json::json;
-
-    use crate::artifacts::os::linux::artifacts::{journals, logons, output_data, sudo_logs_linux};
-    use crate::structs::artifacts::os::linux::{JournalOptions, LinuxSudoOptions, LogonOptions};
+    use crate::artifacts::os::linux::artifacts::{
+        ext4_filelist, journals, logons, output_data, sudo_logs_linux,
+    };
+    use crate::artifacts::os::systeminfo::info::get_info_metadata;
+    use crate::structs::artifacts::os::linux::{
+        Ext4Options, JournalOptions, LinuxSudoOptions, LogonOptions,
+    };
     use crate::structs::toml::Output;
     use crate::utils::time;
+    use serde_json::json;
 
     fn output_options(name: &str, output: &str, directory: &str, compress: bool) -> Output {
         Output {
@@ -114,15 +134,9 @@ mod tests {
             directory: directory.to_string(),
             format: String::from("jsonl"),
             compress,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: Some(String::new()),
-            filter_script: Some(String::new()),
-            logging: Some(String::new()),
+            ..Default::default()
         }
     }
 
@@ -145,7 +159,7 @@ mod tests {
             &mut output,
             false,
             &JournalOptions {
-                alt_path: Some(String::from("./tmp")),
+                alt_dir: Some(String::from("./tmp")),
             },
         )
         .unwrap();
@@ -175,10 +189,34 @@ mod tests {
             &mut output,
             false,
             &LinuxSudoOptions {
-                alt_path: Some(String::from("./tmp")),
+                alt_dir: Some(String::from("./tmp")),
             },
         )
         .unwrap();
         assert_eq!(status, ());
+    }
+
+    #[test]
+    fn test_ext4_filelist() {
+        // Run test only in Github CI. Parsing the ext4 filesystem requires root
+        if !get_info_metadata().kernel_version.contains("azure") {
+            return;
+        }
+        let mut output = output_options("ext4", "local", "./tmp", false);
+        ext4_filelist(
+            &mut output,
+            false,
+            &Ext4Options {
+                start_path: String::from("/"),
+                depth: 99,
+                device: None,
+                md5: None,
+                sha1: None,
+                sha256: None,
+                path_regex: None,
+                filename_regex: None,
+            },
+        )
+        .unwrap();
     }
 }

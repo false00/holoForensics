@@ -19,6 +19,7 @@ pub struct UserInfo {
     pub number_logons: u16,
     pub username: String,
     pub sid: String,
+    pub evidence: String,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -69,7 +70,7 @@ pub struct PeInfo {
  * `Amcache` is just a Registry file with plaintext entries. No additional parsing is needed
  * Each entry contains PE metadata such as size, version, original filename, SHA1 (First ~31MB), publisher
  */
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Amcache {
     pub last_modified: String,
     pub path: String,
@@ -89,17 +90,10 @@ pub struct Amcache {
     pub usn: String,
     pub sha1: String, // Only first ~31MBs
     pub reg_path: String,
-    pub source_path: String,
+    pub evidence: String,
 }
 
-#[derive(Debug, Serialize)]
-pub struct WindowsBits {
-    pub bits: Vec<BitsInfo>,
-    pub carved_jobs: Vec<JobInfo>,
-    pub carved_files: Vec<FileInfo>,
-}
-
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BitsInfo {
     pub job_id: String,
     pub file_id: String,
@@ -108,7 +102,6 @@ pub struct BitsInfo {
     pub modified: String,
     pub completed: String,
     pub expiration: String,
-    pub files_total: u32,
     pub bytes_downloaded: u64,
     pub bytes_transferred: u64,
     pub job_name: String,
@@ -119,12 +112,12 @@ pub struct BitsInfo {
     pub job_type: JobType,
     pub job_state: JobState,
     pub priority: JobPriority,
-    pub flags: JobFlags,
+    pub flags: Vec<JobFlags>,
     pub http_method: String,
     pub full_path: String,
     pub filename: String,
     pub target_path: String,
-    pub tmp_file: String,
+    pub tmp_fullpath: String,
     pub volume: String,
     pub url: String,
     pub carved: bool,
@@ -133,6 +126,8 @@ pub struct BitsInfo {
     pub timeout: u32,
     pub retry_delay: u32,
     pub additional_sids: Vec<String>,
+    pub drive: String,
+    pub evidence: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -149,10 +144,9 @@ pub struct FileInfo {
     pub files_transferred: u32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Default)]
 pub struct JobInfo {
     pub job_id: String,
-    pub file_id: String,
     pub owner_sid: String,
     pub created: String,
     pub modified: String,
@@ -167,16 +161,17 @@ pub struct JobInfo {
     pub job_type: JobType,
     pub job_state: JobState,
     pub priority: JobPriority,
-    pub flags: JobFlags,
+    pub flags: Vec<JobFlags>,
     pub http_method: String,
     pub acls: Vec<AccessControlEntry>,
     pub additional_sids: Vec<String>,
     pub timeout: u32,
     pub retry_delay: u32,
     pub target_path: String,
+    pub file_ids: Vec<String>,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Default)]
 pub enum JobState {
     Queued,
     Connecting,
@@ -187,41 +182,40 @@ pub enum JobState {
     Transferred,
     Acknowledged,
     Cancelled,
+    #[default]
     Unknown,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Default)]
 pub enum JobPriority {
     Foreground,
     High,
     Normal,
     Low,
+    #[default]
     Unknown,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Default)]
 pub enum JobType {
     Download,
     Upload,
     UploadReply,
+    #[default]
     Unknown,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum JobFlags {
     Transferred,
     Error,
-    TransferredBackgroundError,
     Disable,
-    TransferredBackgroundDisable,
-    ErrorBackgroundDisable,
-    TransferredBackgroundErrorDisable,
-    Modification,
+    JobModification,
     FileTransferred,
-    Unknown,
+    FileRangesTransferred,
 }
 
-#[derive(Debug, PartialEq, Serialize, Clone)]
+#[derive(Debug, PartialEq, Serialize, Clone, Deserialize)]
 pub struct AccessControlEntry {
     pub ace_type: AceTypes,
     pub flags: Vec<AceFlags>,
@@ -235,7 +229,7 @@ pub struct AccessControlEntry {
     pub inherited_object_type_guid: String,
 }
 
-#[derive(Debug, PartialEq, Serialize, Clone)]
+#[derive(Debug, PartialEq, Serialize, Clone, Deserialize)]
 pub enum AceTypes {
     AccessAllowedAceType,
     AccessDeniedAceType,
@@ -260,14 +254,14 @@ pub enum AceTypes {
     Object,
 }
 
-#[derive(Debug, PartialEq, Serialize, Clone)]
+#[derive(Debug, PartialEq, Serialize, Clone, Deserialize)]
 pub enum ObjectFlag {
     ObjectType,
     InheritedObjectType,
     None,
 }
 
-#[derive(Debug, PartialEq, Serialize, Clone)]
+#[derive(Debug, PartialEq, Serialize, Clone, Deserialize)]
 pub enum AceFlags {
     ObjectInherit,
     ContainerInherit,
@@ -285,7 +279,7 @@ pub enum AccessItem {
     Registry,
 }
 
-#[derive(Debug, PartialEq, Serialize, Clone)]
+#[derive(Debug, PartialEq, Serialize, Clone, Deserialize)]
 pub enum AccessMask {
     Delete,
     ReadControl,
@@ -372,19 +366,20 @@ pub struct EventLogRecord {
     pub event_record_id: u64,
     pub timestamp: String,
     pub data: Value,
+    pub evidence: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct JumplistEntry {
     pub lnk_info: ShortcutInfo,
-    pub path: String,
+    pub evidence: String,
     pub jumplist_type: ListType,
     pub app_id: String,
     /**Only applicable for Automatic Jumplists */
     pub jumplist_metadata: DestEntries,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DestEntries {
     pub droid_volume_id: String,
     pub droid_file_id: String,
@@ -397,22 +392,22 @@ pub struct DestEntries {
     pub path: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PinStatus {
     Pinned,
     NotPinned,
     None,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum ListType {
     Automatic,
     Custom,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct ShortcutInfo {
-    pub source_path: String,
+    pub evidence: String,
     pub data_flags: Vec<DataFlags>,
     pub attribute_flags: Vec<AttributeFlags>,
     pub created: String,
@@ -449,7 +444,7 @@ pub struct ShortcutInfo {
     pub is_abnormal: bool,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum NetworkProviderType {
     WnncNetAvid,
     WnncNetDocuspace,
@@ -496,14 +491,14 @@ pub enum NetworkProviderType {
     None,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum LocationFlag {
     VolumeIDAndLocalBasePath,
     CommonNetworkRelativeLinkAndPathSuffix,
     None,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum DriveType {
     DriveUnknown,
     DriveNotRootDir,
@@ -515,7 +510,7 @@ pub enum DriveType {
     None,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Console {
     pub color_flags: Vec<ColorFlags>,
     pub popup_fill_attributes: Vec<ColorFlags>,
@@ -539,7 +534,7 @@ pub struct Console {
     pub color_table: String,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum ColorFlags {
     ForegroundBlue,
     ForegroundGreen,
@@ -551,7 +546,7 @@ pub enum ColorFlags {
     BackgroundIntensity,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum FontFamily {
     DontCare,
     Roman,
@@ -562,13 +557,13 @@ pub enum FontFamily {
     Unknown,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum FontWeight {
     Regular,
     Bold,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum CursorSize {
     Small,
     Normal,
@@ -576,7 +571,7 @@ pub enum CursorSize {
     Unknown,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum DataFlags {
     HasTargetIdList,
     HasLinkInfo,
@@ -635,7 +630,7 @@ pub enum AttributeFlags {
  * `mft_entry`: The MFT entry for a file or directory `ShellItem`
  * `mft_sequence`: The MFT sequence for a file or directory `ShellItem`
 */
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct ShellItem {
     pub value: String,
     pub shell_type: ShellType,
@@ -650,7 +645,7 @@ pub struct ShellItem {
     pub stores: Vec<HashMap<String, Value>>,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Default)]
 pub enum ShellType {
     Directory, // After applying bitwise AND 0x70
     Network,   // After applying bitwise AND 0x70
@@ -663,13 +658,14 @@ pub enum ShellType {
     Uri,
     Variable,
     Mtp,
+    #[default]
     Unknown,
     History,
     GameFolder,
     _Optical, // No optical drives available to test on.
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, Default)]
 pub struct RawFilelist {
     pub full_path: String,
     pub directory: String,
@@ -691,6 +687,7 @@ pub struct RawFilelist {
     pub parent_mft_reference: u64,
     pub owner: u32,
     pub attributes: Vec<String>,
+    pub namespace: Namespace,
     pub md5: String,
     pub sha1: String,
     pub sha256: String,
@@ -713,16 +710,17 @@ pub struct ADSInfo {
     pub size: u64,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, Default)]
 pub enum CompressionType {
     NTFSCompressed,
     WofCompressed,
+    #[default]
     None,
 }
 
 #[derive(Debug, Serialize)]
 pub struct Prefetch {
-    pub path: String,
+    pub evidence: String,
     pub filename: String,
     pub hash: String,
     pub last_run_time: String,
@@ -746,7 +744,7 @@ pub struct RecycleBin {
     pub full_path: String,
     pub directory: String,
     pub sid: String,
-    pub recycle_path: String,
+    pub evidence: String,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -758,7 +756,7 @@ pub struct RegistryData {
     pub last_modified: String,
     pub depth: usize,
     pub security_offset: i32,
-    pub registry_path: String,
+    pub evidence: String,
     pub registry_file: String,
 }
 
@@ -769,9 +767,9 @@ pub struct KeyValue {
     pub data_type: String, // REG_WORD, REG_DWORD
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ServicesData {
-    pub state: ServiceState,
+    pub sid_type: SidType,
     pub name: String,
     pub display_name: String,
     pub description: String,
@@ -787,19 +785,22 @@ pub struct ServicesData {
     pub required_privileges: Vec<String>,
     pub error_control: ServiceError,
     pub reg_path: String,
+    pub evidence: String,
+    pub state: ServiceState,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Default)]
 pub enum StartMode {
     Automatic,
     Boot,
     Disabled,
     Manual,
     System,
+    #[default]
     Unknown,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Default)]
 pub enum ServiceState {
     Stopped,
     StartPending,
@@ -808,19 +809,29 @@ pub enum ServiceState {
     ContinuePending,
     PausePending,
     Paused,
+    #[default]
     Unknown,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Default)]
+pub enum SidType {
+    Restricted,
+    Unrestricted,
+    #[default]
+    None,
+}
+
+#[derive(Debug, PartialEq, Deserialize, Serialize, Default)]
 pub enum ServiceError {
     Ignore,
     Normal,
     Severe,
     Critical,
+    #[default]
     Unknown,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub enum ServiceType {
     Adapter,
     FileSystemDriver,
@@ -831,13 +842,13 @@ pub enum ServiceType {
     Win32SharedProcess,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub struct FailureActions {
     pub action: Action,
     pub delay: u32,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub enum Action {
     None,
     Reboot,
@@ -846,23 +857,23 @@ pub enum Action {
     Unknown,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ShimcacheEntry {
     pub entry: u32,
     pub path: String,
     pub last_modified: String,
     pub key_path: String,
-    pub source_path: String,
+    pub evidence: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ShimData {
     pub indexes: Vec<TagData>,
     pub db_data: DatabaseData,
-    pub sdb_path: String,
+    pub evidence: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct DatabaseData {
     pub sdb_version: String,
     pub compile_time: String,
@@ -874,7 +885,7 @@ pub struct DatabaseData {
     pub list_data: Vec<TagData>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TagData {
     pub data: HashMap<String, String>, //key: TAG_SHIM_TAGID, value: "0x11", binary: base64, string
     pub list_data: Vec<HashMap<String, String>>,
@@ -901,6 +912,7 @@ pub struct ApplicationInfo {
     pub background_num_read_operations: i32,
     pub background_num_write_operations: i32,
     pub background_number_of_flushes: i32,
+    pub evidence: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -949,6 +961,7 @@ pub struct AppTimelineInfo {
     pub keyboard_input_timeline: i64,
     pub keyboard_input_s: i32,
     pub mouse_input_s: i32,
+    pub evidence: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -961,6 +974,7 @@ pub struct AppVfu {
     pub start_time: String,
     pub end_time: String,
     pub usage: String,
+    pub evidence: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -970,6 +984,7 @@ pub struct EnergyInfo {
     pub app_id: String,
     pub user_id: String,
     pub binary_data: String,
+    pub evidence: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -985,6 +1000,7 @@ pub struct EnergyUsage {
     pub charge_level: i32,
     pub cycle_count: i32,
     pub configuration_hash: i64,
+    pub evidence: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -998,6 +1014,7 @@ pub struct NetworkInfo {
     pub l2_profile_flags: i32,
     pub bytes_sent: i64,
     pub bytes_recvd: i64,
+    pub evidence: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -1011,6 +1028,7 @@ pub struct NetworkConnectivityInfo {
     pub connected_time: i32,
     pub connect_start_time: String,
     pub l2_profile_flags: i32,
+    pub evidence: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -1022,13 +1040,53 @@ pub struct NotificationInfo {
     pub notification_type: i32,
     pub payload_size: i32,
     pub network_type: i32,
+    pub evidence: String,
 }
 
-#[derive(Serialize)]
-pub struct TaskData {
-    pub tasks: Vec<TaskXml>,
-    pub jobs: Vec<TaskJob>,
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct TaskInfo {
+    pub path: String,
+    pub description: String,
+    pub enabled: bool,
+    pub hidden: bool,
+    pub name: String,
+    pub action: String,
+    pub format: TaskFormat,
+    pub details: Value,
+    pub registry_task_path: String,
+    pub registry_tree_path: String,
+    pub registry_file: String,
+    pub id: String,
+    pub created: String,
+    pub last_run: String,
+    pub last_successful_run: String,
+    pub last_error_code: i32,
+    pub security_descriptor: String,
+    pub action_count: u8,
+    pub evidence: String,
 }
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub enum TaskFormat {
+    Xml,
+    Job,
+    #[default]
+    Unkonwn,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct TaskCache {
+    pub registry_task_path: String,
+    pub registry_tree_path: String,
+    pub registry_file: String,
+    pub id: String,
+    pub created: String,
+    pub last_run: String,
+    pub last_successful_run: String,
+    pub last_error_code: i32,
+    pub security_description: String,
+}
+
 /**
  * Structure of a XML format Schedule Task
  * Schema at: [Task XML](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tsch/0d6383e4-de92-43e7-b0bb-a60cfa36379f)
@@ -1042,7 +1100,7 @@ pub struct TaskXml {
     pub data: Option<String>,
     pub principals: Option<Vec<Principals>>,
     pub actions: Actions,
-    pub path: String,
+    pub evidence: String,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -1305,7 +1363,7 @@ pub struct TaskJob {
     pub user_data: String,
     pub start_error: u32,
     pub triggers: Vec<VarTriggers>,
-    pub path: String,
+    pub evidence: String,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -1387,12 +1445,12 @@ pub struct UserAssistEntry {
     pub path: String,
     pub last_execution: String,
     pub count: u32,
-    pub reg_path: String,
     pub rot_path: String,
     pub folder_path: String,
+    pub evidence: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct UsnJrnlEntry {
     pub mft_entry: u32,
     pub mft_sequence: u16,
@@ -1408,9 +1466,10 @@ pub struct UsnJrnlEntry {
     pub extension: String,
     pub full_path: String,
     pub drive: String,
+    pub evidence: String,
 }
 
-#[derive(Debug, PartialEq, Serialize, Clone)]
+#[derive(Debug, PartialEq, Serialize, Clone, Deserialize)]
 pub enum Reason {
     Overwrite,
     Extend,
@@ -1436,7 +1495,7 @@ pub enum Reason {
     Close,
 }
 
-#[derive(Debug, PartialEq, Serialize, Clone)]
+#[derive(Debug, PartialEq, Serialize, Clone, Deserialize)]
 pub enum Source {
     DataManagement,
     AuxiliaryData,
@@ -1444,7 +1503,7 @@ pub enum Source {
     None,
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WmiPersist {
     pub class: String,
     pub values: BTreeMap<String, Value>,
@@ -1453,6 +1512,7 @@ pub struct WmiPersist {
     pub filter: String,
     pub consumer: String,
     pub consumer_name: String,
+    pub evidence: String,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -1466,7 +1526,7 @@ pub struct OutlookMessage {
     pub attachments: Vec<OutlookAttachment>,
     pub properties: Vec<PropertyContext>,
     pub folder_path: String,
-    pub source_file: String,
+    pub evidence: String,
     pub yara_hits: Vec<String>,
 }
 
@@ -1529,7 +1589,7 @@ pub enum PropertyType {
     Unknown,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct EventMessage {
     pub message: String,
     pub template_message: String,
@@ -1553,25 +1613,26 @@ pub struct EventMessage {
     pub sid: String,
     pub channel: String,
     pub computer: String,
-    pub source_file: String,
     pub message_file: String,
     pub parameter_file: String,
     pub registry_file: String,
     pub registry_path: String,
     pub rendering_info: Option<Value>,
+    pub evidence: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Default)]
 pub enum EventLevel {
     Information,
     Warning,
     Critical,
     Verbose,
     Error,
+    #[default]
     Unknown,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct MftEntry {
     pub filename: String,
     pub directory: String,
@@ -1595,13 +1656,16 @@ pub struct MftEntry {
     pub parent_inode: u32,
     pub attribute_list: Vec<Value>,
     pub deleted: bool,
+    pub drive: String,
+    pub evidence: String,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Default)]
 pub enum Namespace {
     Posix,
     Windows,
     Dos,
     WindowsDos,
+    #[default]
     Unknown,
 }

@@ -36,7 +36,7 @@ pub(crate) fn grab_recycle_bin(
     let drive = match systemdrive_result {
         Ok(result) => result,
         Err(err) => {
-            error!("[recyclebin] Could not get systemdrive: {err:?}");
+            error!("[recyclebin] Could not get system drive: {err:?}");
             return Err(RecycleBinError::Systemdrive);
         }
     };
@@ -84,8 +84,8 @@ pub(crate) fn grab_recycle_bin_path(path: &str) -> Result<RecycleBin, RecycleBin
         }
     };
 
-    bin.recycle_path = path.to_string();
-    bin.sid = get_filename(&get_parent_directory(&bin.recycle_path));
+    bin.evidence = path.to_string();
+    bin.sid = get_filename(&get_parent_directory(&bin.evidence));
 
     Ok(bin)
 }

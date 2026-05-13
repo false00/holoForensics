@@ -34,7 +34,7 @@ pub(crate) fn loginitems(
     let start_time = time::time_now();
 
     let artifact_result = grab_loginitems(options);
-    let result = match artifact_result {
+    let entries = match artifact_result {
         Ok(results) => results,
         Err(err) => {
             error!("[forensics] Failed to parse loginitems: {err:?}");
@@ -42,7 +42,11 @@ pub(crate) fn loginitems(
         }
     };
 
-    let serde_data_result = serde_json::to_value(result);
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
         Err(err) => {
@@ -64,7 +68,7 @@ pub(crate) fn emond(
     let start_time = time::time_now();
 
     let results = grab_emond(options);
-    let emond_data = match results {
+    let entries = match results {
         Ok(result) => result,
         Err(err) => {
             warn!("[forensics] Failed to parse emond rules: {err:?}");
@@ -72,7 +76,11 @@ pub(crate) fn emond(
         }
     };
 
-    let serde_data_result = serde_json::to_value(emond_data);
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
         Err(err) => {
@@ -93,8 +101,11 @@ pub(crate) fn users_macos(
 ) -> Result<(), MacArtifactError> {
     let start_time = time::time_now();
 
-    let users_data = grab_users(options);
-    let serde_data_result = serde_json::to_value(users_data);
+    let entries = grab_users(options);
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
         Err(err) => {
@@ -115,8 +126,11 @@ pub(crate) fn groups_macos(
 ) -> Result<(), MacArtifactError> {
     let start_time = time::time_now();
 
-    let groups_data = grab_groups(options);
-    let serde_data_result = serde_json::to_value(groups_data);
+    let entries = grab_groups(options);
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
         Err(err) => {
@@ -135,14 +149,11 @@ pub(crate) fn fseventsd(
     filter: bool,
     options: &FseventsOptions,
 ) -> Result<(), MacArtifactError> {
-    let results = grab_fseventsd(options, filter, output);
-    if results.is_err() {
-        warn!(
-            "[forensics] Failed to parse fseventsd: {:?}",
-            results.unwrap_err()
-        );
+    if let Err(err) = grab_fseventsd(options, filter, output) {
+        warn!("[forensics] Failed to parse fseventsd: {err:?}");
         return Err(MacArtifactError::FsEventsd);
     }
+
     Ok(())
 }
 
@@ -155,7 +166,7 @@ pub(crate) fn launchd(
     let start_time = time::time_now();
 
     let artifact_result = grab_launchd(options);
-    let results = match artifact_result {
+    let entries = match artifact_result {
         Ok(results) => results,
         Err(err) => {
             error!("[forensics] Failed to parse launchd: {err:?}");
@@ -163,7 +174,11 @@ pub(crate) fn launchd(
         }
     };
 
-    let serde_data_result = serde_json::to_value(results);
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
         Err(err) => {
@@ -194,15 +209,17 @@ pub(crate) fn execpolicy(
     let start_time = time::time_now();
 
     let artifact_result = grab_execpolicy(options);
-    let results = match artifact_result {
+    let entries = match artifact_result {
         Ok(results) => results,
         Err(err) => {
             error!("[forensics] Failed to query execpolicy: {err:?}");
             return Err(MacArtifactError::ExecPolicy);
         }
     };
-
-    let serde_data_result = serde_json::to_value(results);
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
         Err(err) => {
@@ -223,7 +240,7 @@ pub(crate) fn sudo_logs_macos(
 ) -> Result<(), MacArtifactError> {
     let start_time = time_now();
     let artifact_result = grab_sudo_logs(options);
-    let results = match artifact_result {
+    let entries = match artifact_result {
         Ok(results) => results,
         Err(err) => {
             warn!("[forensics] Failed to get sudo log data: {err:?}");
@@ -231,7 +248,11 @@ pub(crate) fn sudo_logs_macos(
         }
     };
 
-    let serde_data_result = serde_json::to_value(results);
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let serde_data_result = serde_json::to_value(entries);
     let mut serde_data = match serde_data_result {
         Ok(results) => results,
         Err(err) => {
@@ -250,14 +271,12 @@ pub(crate) fn spotlight(
     filter: bool,
     options: &SpotlightOptions,
 ) -> Result<(), MacArtifactError> {
-    let artifact_result = grab_spotlight(options, output, filter);
-    match artifact_result {
-        Ok(results) => Ok(results),
-        Err(err) => {
-            warn!("[forensics] Failed to get spotlight data: {err:?}");
-            Err(MacArtifactError::Spotlight)
-        }
+    if let Err(err) = grab_spotlight(options, output, filter) {
+        warn!("[forensics] Failed to get spotlight data: {err:?}");
+        return Err(MacArtifactError::Spotlight);
     }
+
+    Ok(())
 }
 
 /// Output macOS artifacts
@@ -269,11 +288,8 @@ pub(crate) fn output_data(
     filter: bool,
 ) -> Result<(), MacArtifactError> {
     let status = output_artifact(serde_data, output_name, output, start_time, filter);
-    if status.is_err() {
-        error!(
-            "[forensics] Could not output data: {:?}",
-            status.unwrap_err()
-        );
+    if let Err(result) = status {
+        error!("[forensics] Could not output data: {result:?}");
         return Err(MacArtifactError::Output);
     }
     Ok(())
@@ -305,15 +321,9 @@ mod tests {
             directory: directory.to_string(),
             format: String::from("jsonl"),
             compress,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: Some(String::new()),
-            filter_script: Some(String::new()),
-            logging: Some(String::new()),
+            ..Default::default()
         }
     }
 
@@ -329,7 +339,7 @@ mod tests {
     fn test_emond() {
         let mut output = output_options("emond_test", "local", "./tmp", false);
 
-        let status = emond(&mut output, false, &EmondOptions { alt_path: None }).unwrap();
+        let status = emond(&mut output, false, &EmondOptions { alt_dir: None }).unwrap();
         assert_eq!(status, ());
     }
 
@@ -338,7 +348,7 @@ mod tests {
         let mut output = output_options("users_test", "local", "./tmp", false);
 
         let status =
-            users_macos(&mut output, false, &&MacosUsersOptions { alt_path: None }).unwrap();
+            users_macos(&mut output, false, &&MacosUsersOptions { alt_dir: None }).unwrap();
         assert_eq!(status, ());
     }
 
@@ -347,7 +357,7 @@ mod tests {
         let mut output = output_options("groups_test", "local", "./tmp", false);
 
         let status =
-            groups_macos(&mut output, false, &&MacosGroupsOptions { alt_path: None }).unwrap();
+            groups_macos(&mut output, false, &&MacosGroupsOptions { alt_dir: None }).unwrap();
         assert_eq!(status, ());
     }
 
@@ -415,7 +425,7 @@ mod tests {
             &mut output,
             false,
             &SpotlightOptions {
-                alt_path: None,
+                alt_dir: None,
                 include_additional: None,
             },
         )

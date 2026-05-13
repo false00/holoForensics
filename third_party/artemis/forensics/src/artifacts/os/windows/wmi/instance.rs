@@ -45,6 +45,12 @@ pub(crate) fn parse_instance_record(data: &[u8]) -> nom::IResult<&[u8], Instance
 
     let adjust_block = 4;
     // Size includes block size itself. Which has already been nom'd
+    if block_size < adjust_block {
+        return Err(nom::Err::Failure(nom::error::Error::new(
+            input,
+            ErrorKind::Eof,
+        )));
+    }
     let (input, block_data) = take(block_size - adjust_block)(input)?;
 
     let (remaining, class_name_offset) = nom_unsigned_four_bytes(block_data, Endian::Le)?;
@@ -160,6 +166,13 @@ fn grab_instance_data<'a>(
         remaining = qual_remaining;
     }
 
+    if qualifier_size < adjust_size {
+        return Err(nom::Err::Failure(nom::error::Error::new(
+            remaining,
+            ErrorKind::Eof,
+        )));
+    }
+
     let (remaining, qual_data) = take(qualifier_size - adjust_size)(remaining)?;
     let (_, _qualifiers) = parse_qualifier(qual_data, remaining)?;
     let (mut remaining, dynamic_prop) = nom_unsigned_one_byte(remaining, Endian::Le)?;
@@ -221,6 +234,12 @@ fn parse_dynamic_props(data: &[u8]) -> nom::IResult<&[u8], ()> {
     while count < number_instances {
         let (remaining, size) = nom_unsigned_four_bytes(input, Endian::Le)?;
         let adjust_size = 4;
+        if size < adjust_size {
+            return Err(nom::Err::Failure(nom::error::Error::new(
+                remaining,
+                ErrorKind::Eof,
+            )));
+        }
         let (remaining, _data) = take(size - adjust_size)(remaining)?;
         input = remaining;
         count += 1;

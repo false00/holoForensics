@@ -22,40 +22,38 @@ use crate::{
     structs::artifacts::os::windows::BitsOptions,
     utils::environment::get_systemdrive,
 };
-use common::windows::WindowsBits;
+use common::windows::BitsInfo;
 use log::error;
 
 /**
  * Grab the `BITS` data from the default path(s) or an alternative path  
  * The associated `BITS` file(s) is locked if the `BITS` service is running so we read the raw file to bypass the lock
  */
-pub(crate) fn grab_bits(options: &BitsOptions) -> Result<WindowsBits, BitsError> {
-    let path = if let Some(alt) = &options.alt_file {
-        alt.clone()
-    } else {
-        let systemdrive_result = get_systemdrive();
-        let systemdrive = match systemdrive_result {
-            Ok(result) => result,
-            Err(err) => {
-                error!("[bits] Could not get systemdrive: {err:?}");
-                return Err(BitsError::Systemdrive);
-            }
-        };
-        let bits_path =
-            format!("{systemdrive}:\\ProgramData\\Microsoft\\Network\\Downloader\\qmgr.db");
-        // If qmbgr.db is not found this may be an older system that uses the older BITS format
-        if !is_file(&bits_path) {
-            return parse_legacy_bits(systemdrive, options.carve);
+pub(crate) fn grab_bits(options: &BitsOptions) -> Result<Vec<BitsInfo>, BitsError> {
+    if let Some(alt) = &options.alt_file {
+        return grab_bits_path(alt, options.carve);
+    }
+    let systemdrive_result = get_systemdrive();
+    let systemdrive = match systemdrive_result {
+        Ok(result) => result,
+        Err(err) => {
+            error!("[bits] Could not get systemdrive: {err:?}");
+            return Err(BitsError::Systemdrive);
         }
-        bits_path
     };
+    let path = format!("{systemdrive}:\\ProgramData\\Microsoft\\Network\\Downloader\\qmgr.db");
+    // If qmbgr.db is not found this may be an older system that uses the older BITS format
+    if !is_file(&path) {
+        return parse_legacy_bits(systemdrive, options.carve);
+    }
+
     grab_bits_path(&path, options.carve)
 }
 
 /**
  * Grab the BITS data from file path
  */
-fn grab_bits_path(path: &str, carve: bool) -> Result<WindowsBits, BitsError> {
+fn grab_bits_path(path: &str, carve: bool) -> Result<Vec<BitsInfo>, BitsError> {
     if file_extension(path) == "db" {
         return parse_ese_bits(path, carve);
     }
@@ -85,6 +83,6 @@ mod tests {
         let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         test_location.push("tests\\test_data\\windows\\bits\\win81\\qmgr0.dat");
         let results = grab_bits_path(&test_location.to_str().unwrap(), false).unwrap();
-        assert_eq!(results.bits.len(), 1);
+        assert_eq!(results.len(), 1);
     }
 }

@@ -12,7 +12,7 @@ use crate::{
 };
 use common::linux::{Facility, Journal, Priority};
 use log::{error, warn};
-use std::{collections::HashMap, fs::File};
+use std::fs::File;
 
 #[derive(Debug)]
 pub(crate) struct EntryArray {
@@ -31,6 +31,7 @@ impl EntryArray {
         output: &mut Output,
         filter: bool,
         start_time: u64,
+        evidence: &str,
     ) -> nom::IResult<&'a [u8], u64> {
         let (mut input, next_entry_array_offset) = nom_unsigned_eight_bytes(data, Endian::Le)?;
 
@@ -64,7 +65,10 @@ impl EntryArray {
             };
 
             if object_header.obj_type != ObjectType::Entry {
-                warn!("[journal] Did not get Entry object type!");
+                warn!(
+                    "[journal] Did not get Entry object type, received: {:?}",
+                    object_header.obj_type
+                );
                 continue;
             }
 
@@ -73,7 +77,7 @@ impl EntryArray {
             let entry = match entry_result {
                 Ok((_, result)) => result,
                 Err(_err) => {
-                    error!("[journal] Could not parse entry data");
+                    error!("[journal] Could not parse log entry data for {evidence}");
                     continue;
                 }
             };
@@ -82,7 +86,7 @@ impl EntryArray {
             // The Journal file can be configured to be very large. Default size is usually ~10MB
             // To limit memory usage we output every 1k entries
             if entry_array.entries.len() >= limit {
-                let messages = EntryArray::parse_messages(&entry_array.entries);
+                let messages = EntryArray::parse_messages(&entry_array.entries, evidence);
                 let serde_data_result = serde_json::to_value(messages);
                 let mut serde_data = match serde_data_result {
                     Ok(results) => results,
@@ -103,7 +107,7 @@ impl EntryArray {
         }
 
         // Output any leftover messages
-        let messages = EntryArray::parse_messages(&entry_array.entries);
+        let messages = EntryArray::parse_messages(&entry_array.entries, evidence);
         let serde_data_result = serde_json::to_value(messages);
         let mut serde_data: serde_json::Value = match serde_data_result {
             Ok(results) => results,
@@ -155,7 +159,10 @@ impl EntryArray {
             };
 
             if object_header.obj_type != ObjectType::Entry {
-                warn!("[journal] Did not get Entry object type!");
+                warn!(
+                    "[journal] Did not get Entry object type, received: {:?}",
+                    object_header.obj_type
+                );
                 continue;
             }
 
@@ -174,48 +181,15 @@ impl EntryArray {
     }
 
     /// Parse the `Journal` message
-    pub(crate) fn parse_messages(entries: &[Entry]) -> Vec<Journal> {
+    pub(crate) fn parse_messages(entries: &[Entry], evidence: &str) -> Vec<Journal> {
         let mut journal_entries: Vec<Journal> = Vec::new();
 
         for entry in entries {
             let mut journal = Journal {
-                uid: 0,
-                gid: 0,
-                pid: 0,
-                comm: String::new(),
-                priority: Priority::None,
-                syslog_facility: Facility::None,
-                thread_id: 0,
-                syslog_identifier: String::new(),
-                executable: String::new(),
-                cmdline: String::new(),
-                cap_effective: String::new(),
-                audit_session: 0,
-                audit_loginuid: 0,
-                systemd_cgroup: String::new(),
-                systemd_owner_uid: 0,
-                systemd_unit: String::new(),
-                systemd_user_unit: String::new(),
-                systemd_slice: String::new(),
-                systemd_user_slice: String::new(),
-                systemd_invocation_id: String::new(),
-                boot_id: String::new(),
-                machine_id: String::new(),
-                hostname: String::new(),
-                runtime_scope: String::new(),
-                source_realtime: String::new(),
                 realtime: unixepoch_microseconds_to_iso(entry.realtime as i64),
+                evidence: evidence.to_string(),
                 seqnum: entry.seqnum,
-                transport: String::new(),
-                message: String::new(),
-                message_id: String::new(),
-                unit_result: String::new(),
-                code_line: 0,
-                code_function: String::new(),
-                code_file: String::new(),
-                user_invocation_id: String::new(),
-                user_unit: String::new(),
-                custom: HashMap::new(),
+                ..Default::default()
             };
 
             for data in &entry.data_objects {
@@ -363,6 +337,13 @@ impl EntryArray {
                     journal
                         .custom
                         .insert(field.to_string(), field_data.to_string());
+                } else {
+                    warn!(
+                        "[journal] Message missing '=' delimiter for entry at {evidence}:seqnum - {}",
+                        entry.seqnum
+                    );
+                    // Possible binary blob?
+                    journal.custom.insert(data.message.clone(), String::new());
                 }
             }
 
@@ -438,15 +419,9 @@ mod tests {
             directory: directory.to_string(),
             format: String::from("json"),
             compress,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: Some(String::new()),
-            filter_script: Some(String::new()),
-            logging: Some(String::new()),
+            ..Default::default()
         }
     }
 
@@ -476,6 +451,7 @@ mod tests {
             &mut output,
             false,
             0,
+            test_location.to_str().unwrap(),
         )
         .unwrap();
         assert_eq!(result, 3744448);
@@ -528,13 +504,17 @@ mod tests {
         assert_eq!(result.entries.len(), 4);
         assert_eq!(result.entries[2].realtime, 1688346965580106);
 
-        let messages = EntryArray::parse_messages(&result.entries);
+        let messages =
+            EntryArray::parse_messages(&result.entries, &test_location.to_str().unwrap());
         assert_eq!(
             messages[2].message,
             "Started grub-boot-success.timer - Mark boot as successful after the user session has run 2 minutes."
         );
         assert_eq!(messages[1].boot_id, "05a969ef57fe4934900b598c83f62d76");
         assert_eq!(messages[3].executable, "/usr/lib/systemd/systemd");
+        assert!(messages[1].evidence.ends_with(
+            "user-1000@e755452aab34485787b6d73f3035fb8c-000000000000068d-0005ff8ae923c73b.journal"
+        ))
     }
 
     #[test]

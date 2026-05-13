@@ -46,43 +46,43 @@ pub(crate) fn parse_automatic<'a>(
     }
 
     let mut jump_entries = Vec::new();
-
     // Now have everything needed to parse Automatic Jumplists!
-    for entry in jump_ole {
-        for info in dest_info.entries.iter() {
+    for info in dest_info.entries {
+        for entry in &jump_ole {
             // Need to compare hex values
             if entry.name != format!("{:x?}", info.entry) {
                 continue;
             }
 
             let lnk_result = get_shortcut_data(&entry.data);
-            let lnk_info = match lnk_result {
+            let mut lnk_info = match lnk_result {
                 Ok((_, result)) => result,
                 Err(_err) => {
                     error!("[jumplist] Could not parse Shortcut info in Automatic Jumplist!");
                     continue;
                 }
             };
-
+            lnk_info.evidence = path.to_string();
             let jump = JumplistEntry {
                 lnk_info,
-                path: path.to_string(),
+                evidence: path.to_string(),
                 jumplist_type: ListType::Automatic,
                 app_id: get_filename(path)
                     .split('.')
                     .next()
                     .unwrap_or_default()
                     .to_string(),
-                jumplist_metadata: info.clone(),
+                jumplist_metadata: info,
             };
             jump_entries.push(jump);
+            break;
         }
     }
+
     Ok((data, jump_entries))
 }
 
 #[cfg(test)]
-#[cfg(target_os = "windows")]
 mod tests {
     use crate::{
         artifacts::os::windows::jumplists::automatic::parse_automatic, filesystem::files::read_file,
@@ -93,18 +93,18 @@ mod tests {
     fn test_parse_automatic() {
         let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         test_location.push(
-            "tests\\test_data\\dfir\\windows\\jumplists\\win7\\1b4dd67f29cb1962.automaticDestinations-ms",
+            "tests/test_data/dfir/windows/jumplists/win7/1b4dd67f29cb1962.automaticDestinations-ms",
         );
         let data = read_file(&test_location.display().to_string()).unwrap();
 
         let (_, result) = parse_automatic(&data, &test_location.display().to_string()).unwrap();
 
         assert_eq!(result.len(), 4);
-        assert_eq!(result[3].app_id, "1b4dd67f29cb1962");
-        assert_eq!(result[3].lnk_info.created, "2016-01-16T20:22:25.000Z");
-        assert_eq!(result[3].lnk_info.drive_serial, "88008C2F");
+        assert_eq!(result[0].app_id, "1b4dd67f29cb1962");
+        assert_eq!(result[0].lnk_info.created, "2016-01-16T20:22:25.000Z");
+        assert_eq!(result[0].lnk_info.drive_serial, "88008C2F");
         assert_eq!(
-            result[3].jumplist_metadata.path,
+            result[0].jumplist_metadata.path,
             "::{031E4825-7B94-4DC3-B131-E946B44C8DD5}\\Videos.library-ms"
         );
     }
@@ -113,18 +113,18 @@ mod tests {
     fn test_parse_automatic_large() {
         let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         test_location.push(
-            "tests\\test_data\\windows\\jumplists\\win11\\automatic\\3d2110c4a0cb6d15.automaticDestinations-ms",
+            "tests/test_data/windows/jumplists/win11/automatic/3d2110c4a0cb6d15.automaticDestinations-ms",
         );
         let data = read_file(&test_location.display().to_string()).unwrap();
 
         let (_, result) = parse_automatic(&data, &test_location.display().to_string()).unwrap();
 
         assert_eq!(result.len(), 41);
-        assert_eq!(result[3].app_id, "3d2110c4a0cb6d15");
-        assert_eq!(result[3].lnk_info.created, "2022-11-19T17:32:21.000Z");
-        assert_eq!(result[3].lnk_info.drive_serial, "4290933E");
+        assert_eq!(result[37].app_id, "3d2110c4a0cb6d15");
+        assert_eq!(result[37].lnk_info.created, "2022-11-19T17:32:21.000Z");
+        assert_eq!(result[37].lnk_info.drive_serial, "4290933E");
         assert_eq!(
-            result[3].jumplist_metadata.path,
+            result[37].jumplist_metadata.path,
             "C:\\Users\\bob\\Projects\\artemis-core\\tests\\test_data\\browser\\firefoxwin.toml"
         );
     }

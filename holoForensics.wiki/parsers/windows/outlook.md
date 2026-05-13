@@ -15,6 +15,11 @@ Artemis-backed Windows parser for Outlook message stores supplied inside evidenc
 - Outlook `.ost` files
 - Outlook `.pst` files
 
+## Behavior
+
+- On Windows, explicit Outlook store paths supplied through Parse Mode are opened with normal file I/O when they are readable as regular files.
+- The vendored Artemis runtime falls back to raw NTFS access only when a live Outlook store is locked and direct file access is unavailable.
+
 ## Output
 
 - Writes JSONL mail and store records emitted by the vendored Artemis parser runtime.

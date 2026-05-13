@@ -33,8 +33,8 @@ pub(crate) fn parse_store(
     let offset_size = 0x1000;
     let mut entries = Vec::new();
 
-    // Spotlight contains a massive amount of metadata. To limit memory usage we dump our entries array once we hit 10,0000
-    let limit = 10000;
+    // Spotlight contains a massive amount of metadata. To limit memory usage we dump our entries array once we hit 1,0000
+    let limit = 1000;
 
     let prop_header_size = 20;
     for block in blocks {
@@ -84,11 +84,8 @@ pub(crate) fn parse_store(
                 }
             };
             let result = output_data(&mut serde_data, "spotlight", output, start_time, filter);
-            if result.is_err() {
-                error!(
-                    "[spotlight] Could not output spotlight data: {:?}",
-                    result.unwrap_err()
-                );
+            if let Err(status) = result {
+                error!("[spotlight] Could not output spotlight data: {status:?}");
             }
 
             entries = Vec::new();
@@ -105,11 +102,8 @@ pub(crate) fn parse_store(
             }
         };
         let result = output_data(&mut serde_data, "spotlight", output, start_time, filter);
-        if result.is_err() {
-            error!(
-                "[spotlight] Could not output last spotlight data: {:?}",
-                result.unwrap_err()
-            );
+        if let Err(status) = result {
+            error!("[spotlight] Could not output last spotlight data: {status:?}");
         }
     }
 
@@ -301,15 +295,9 @@ mod tests {
             directory: directory.to_string(),
             format: String::from("json"),
             compress,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: Some(String::new()),
-            filter_script: Some(String::new()),
-            logging: Some(String::new()),
+            ..Default::default()
         }
     }
 

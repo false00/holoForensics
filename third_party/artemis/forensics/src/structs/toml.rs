@@ -4,42 +4,64 @@ use super::artifacts::os::macos::{
     MacosGroupsOptions, MacosSudoOptions, MacosUsersOptions, SpotlightOptions, UnifiedLogsOptions,
 };
 use super::artifacts::os::windows::{MftOptions, OutlookOptions};
+use crate::structs::artifacts::os::linux::Ext4Options;
 use crate::structs::artifacts::os::windows::{
     AmcacheOptions, BitsOptions, EventLogsOptions, JumplistsOptions, PrefetchOptions,
     RawFilesOptions, RecycleBinOptions, RegistryOptions, SearchOptions, ServicesOptions,
     ShellbagsOptions, ShimcacheOptions, ShimdbOptions, ShortcutOptions, SrumOptions, TasksOptions,
     UserAssistOptions, UsnJrnlOptions, WindowsUserOptions, WmiPersistOptions,
 };
+use crate::structs::artifacts::triage::TriageOptions;
 use crate::structs::artifacts::{
     os::{files::FileOptions, processes::ProcessOptions},
     runtime::script::JSScript,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ArtemisToml {
     pub output: Output,
     pub artifacts: Vec<Artifacts>,
+    pub marker: Option<Marker>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Default)]
 pub struct Output {
+    /**Name for output folder */
     pub name: String,
+    /**Unique endpoint ID */
     pub endpoint_id: String,
+    /**ID for the collection */
     pub collection_id: u64,
+    /**Folder to store the output data. The `name` folder will be created here */
     pub directory: String,
+    /**Output type: local, aws, gcp, or azure */
     pub output: String,
+    /**Output format: json, jsonl, or csv */
     pub format: String,
+    /**Whether to compress the results with gzip */
     pub compress: bool,
+    /**Timeline supported artifacts */
     pub timeline: bool,
+    /**Apply a filter script before outputting data */
     pub filter_name: Option<String>,
+    /**Run parsed data through provided filter script */
     pub filter_script: Option<String>,
+    /**URL for remote uploads */
     pub url: Option<String>,
+    /**API used for remote uploads */
     pub api_key: Option<String>,
+    /**Set logging setting. Default is warn. Options include: error, warn, info, debug */
     pub logging: Option<String>,
+    #[serde(default)]
+    /**Files containing the output */
+    pub output_files: Vec<String>,
+    #[serde(default)]
+    /**Path to the log file associated with the output */
+    pub log_file: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Default)]
 pub struct Artifacts {
     /**Based on artifact parse one of the artifact types */
     pub artifact_name: String,
@@ -48,7 +70,6 @@ pub struct Artifacts {
     pub processes: Option<ProcessOptions>,
     pub files: Option<FileOptions>,
     pub unifiedlogs: Option<UnifiedLogsOptions>,
-    pub script: Option<JSScript>,
     pub users_macos: Option<MacosUsersOptions>,
     pub groups_macos: Option<MacosGroupsOptions>,
     pub emond: Option<EmondOptions>,
@@ -58,9 +79,10 @@ pub struct Artifacts {
     pub fseventsd: Option<FseventsOptions>,
     pub sudologs_macos: Option<MacosSudoOptions>,
     pub spotlight: Option<SpotlightOptions>,
-    pub journals: Option<JournalOptions>,
+    pub journal: Option<JournalOptions>,
     pub sudologs_linux: Option<LinuxSudoOptions>,
     pub logons: Option<LogonOptions>,
+    pub rawfiles_ext4: Option<Ext4Options>,
     pub eventlogs: Option<EventLogsOptions>,
     pub prefetch: Option<PrefetchOptions>,
     pub rawfiles: Option<RawFilesOptions>,
@@ -84,4 +106,18 @@ pub struct Artifacts {
     pub outlook: Option<OutlookOptions>,
     pub mft: Option<MftOptions>,
     pub connections: Option<()>,
+    pub triage: Option<Vec<TriageOptions>>,
+
+    // Scripts to run in BoaJS
+    pub script: Option<JSScript>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Marker {
+    /**Path to save marker file in */
+    pub path: String,
+    /**Name of the marker file */
+    pub name: String,
+    /**Age in minutes */
+    pub age: u64,
 }

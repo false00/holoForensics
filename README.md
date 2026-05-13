@@ -141,7 +141,7 @@ Parser exists, matching live collector is still missing:
 - `windows_restore_point_log` -> `windows_restore_point_log_collection`
 - `windows_timeline` -> `windows_timeline_collection`
 
-Most of the additional Windows parser families run through the shared adapter in `src/parsers/windows/artemis.rs` and a vendored Artemis v0.16.0 workspace under `third_party/artemis`. That local fork preserves the existing Holo Forensics plan, manifest, and JSONL output contracts while keeping the Windows offline-file fixes in-repo. Create Package does not yet collect parser-only inputs for BITS, Windows Search, Outlook stores, Shim databases, restore-point logs, or Windows Timeline, and Parse Mode does not yet have matching parser families for PowerShell Activity, `$LogFile`, or INDX collector output.
+Most of the additional Windows parser families run through the shared adapter in `src/parsers/windows/artemis.rs` and a vendored Artemis v0.19.0 workspace under `third_party/artemis`. That local fork preserves the existing Holo Forensics plan, manifest, and JSONL output contracts while keeping the Windows offline-file fixes in-repo. Create Package does not yet collect parser-only inputs for BITS, Windows Search, Outlook stores, Shim databases, restore-point logs, or Windows Timeline, and Parse Mode does not yet have matching parser families for PowerShell Activity, `$LogFile`, or INDX collector output.
 
 ## Getting Started
 
@@ -184,7 +184,7 @@ output/<collection-name>/
 - `src/collection_catalog.rs` -> built-in collection catalog and parser-to-collection validation
 - `src/collections/windows/` -> live Windows collector implementations for browser artifacts, EVTX, Jump Lists, LNK Files, PowerShell Activity, Prefetch, Recycle Bin, Scheduled Tasks, WMI Repository, registry, `$MFT`, `$LogFile`, INDX records, SRUM, and `$UsnJrnl`
 - `src/parsers/windows/` -> native and vendored-Artemis-backed Windows parser implementations for browser history, EVTX, Prefetch, registry-derived artifacts, LNK files, Jump Lists, SRUM, Recycle Bin, Scheduled Tasks, WMI persistence, `$MFT`, USN journal, restore-point logs, XP recycle-bin `INFO2`, and Windows Timeline
-- `third_party/artemis/` -> vendored Artemis v0.16.0 workspace maintained in-repo for Windows offline parsing fixes
+- `third_party/artemis/` -> vendored Artemis v0.19.0 workspace maintained in-repo for Windows offline parsing fixes
 - `src/parser_catalog.rs` -> built-in parser family catalog
 - `holoForensics.wiki/` -> parser and collection documentation
 

@@ -6,13 +6,12 @@ use crate::{
     },
     runtime::helper::{boolean_arg, number_arg, string_arg},
 };
-use boa_engine::{Context, JsError, JsResult, JsValue, js_string, object::builtins::JsUint8Array};
+use boa_engine::{
+    Context, JsError, JsResult, JsString, JsValue, js_string, object::builtins::JsUint8Array,
+};
 use common::files::Hashes;
 use serde::Serialize;
 use std::path::Path;
-
-#[cfg(target_family = "unix")]
-use std::os::unix::prelude::MetadataExt;
 
 /// Return metadata about provided path or file
 pub(crate) fn js_stat(
@@ -24,7 +23,7 @@ pub(crate) fn js_stat(
     let timestamps = match get_timestamps(&path) {
         Ok(result) => result,
         Err(err) => {
-            let issue = format!("Could not get timestamp for {path}: {err:?}");
+            let issue = format!("Could not get timestamps for {path}: {err:?}");
             return Err(JsError::from_opaque(js_string!(issue).into()));
         }
     };
@@ -36,13 +35,7 @@ pub(crate) fn js_stat(
         }
     };
 
-    #[cfg(target_family = "unix")]
-    let (inode, mode, uid, gid) = (meta.ino(), meta.mode(), meta.uid(), meta.gid());
-
-    #[cfg(not(target_family = "unix"))]
-    let (inode, mode, uid, gid) = (0, 0, 0, 0);
-
-    let info = JsFileInfo {
+    let mut info = JsFileInfo {
         filename: get_filename(&path),
         extension: file_extension(&path),
         directory: Path::new(&path)
@@ -56,14 +49,23 @@ pub(crate) fn js_stat(
         accessed: timestamps.accessed,
         changed: timestamps.changed,
         size: meta.len(),
-        inode,
-        mode,
-        uid,
-        gid,
+        inode: 0,
+        mode: 0,
+        uid: 0,
+        gid: 0,
         is_file: meta.is_file(),
         is_directory: meta.is_dir(),
         is_symlink: meta.is_symlink(),
     };
+
+    #[cfg(target_family = "unix")]
+    {
+        use std::os::unix::prelude::MetadataExt;
+        info.inode = meta.ino();
+        info.mode = meta.mode();
+        info.uid = meta.uid();
+        info.gid = meta.gid();
+    }
 
     let data = serde_json::to_value(&info).unwrap_or_default();
     let value = JsValue::from_json(&data, context)?;
@@ -137,7 +139,7 @@ pub(crate) fn js_read_text_file(
             return Err(JsError::from_opaque(js_string!(issue).into()));
         }
     };
-    Ok(JsValue::String(data.into()))
+    Ok(JsValue::new::<JsString>(data.into()))
 }
 
 pub(crate) fn js_read_lines(
@@ -205,15 +207,9 @@ mod tests {
             directory: directory.to_string(),
             format: String::from("json"),
             compress,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: Some(String::new()),
-            filter_script: Some(String::new()),
-            logging: Some(String::new()),
+            ..Default::default()
         }
     }
 

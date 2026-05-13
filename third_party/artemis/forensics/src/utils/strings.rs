@@ -6,15 +6,26 @@ use std::string::{FromUtf8Error, FromUtf16Error};
 pub(crate) fn extract_utf16_string(data: &[u8]) -> String {
     let result = bytes_to_utf16_string(data, false);
     match result {
-        Ok(result) => result,
+        Ok(result) => result.trim_start_matches('\u{1}').to_string(),
         Err(_err) => {
             // If we fail, try again with adjustment. Just incase it works.
             let result = bytes_to_utf16_string(data, true);
             match result {
-                Ok(result) => result,
+                Ok(result) => result.trim_start_matches('\u{1}').to_string(),
                 Err(err) => {
-                    warn!("[strings] Failed to get UTF16 string: {err:?}");
-                    base64_encode_standard(data)
+                    let max_size = 100;
+                    let issue = if data.len() < max_size {
+                        warn!("[strings] Failed to get UTF16 string: {err:?}");
+                        base64_encode_standard(data)
+                    } else {
+                        warn!(
+                            "[strings] Failed to get large UTF16 string: {} bytes",
+                            data.len()
+                        );
+                        let preview = &data[0..50];
+                        format!("String size: {} bytes. Preview: {preview:?}", data.len())
+                    };
+                    format!("Failed to get UTF16 string: {issue}")
                 }
             }
         }
@@ -59,6 +70,7 @@ fn bytes_to_utf16_string(data: &[u8], adjust: bool) -> Result<String, FromUtf16E
 fn bytes_to_utf8_string(data: &[u8]) -> Result<String, FromUtf8Error> {
     let result = String::from_utf8(data.to_vec())?;
     let value = result.trim_end_matches('\0').to_string();
+
     Ok(value)
 }
 
@@ -82,13 +94,17 @@ pub(crate) fn extract_multiline_utf16_string(data: &[u8]) -> String {
             let value = match utf16_result {
                 Ok(results) => format!("{}\n", results.trim_matches('\0')),
                 Err(err) => {
-                    warn!("[strings] Failed to get UTF16 multi-line string: {err:?}");
-
-                    let max_size = 2097152;
+                    let max_size = 100;
                     let issue = if data.len() < max_size {
+                        warn!("[strings] Failed to get UTF16 multi-line string: {err:?}");
                         base64_encode_standard(data)
                     } else {
-                        format!("Binary data size larger than 2MB, size: {}", data.len())
+                        warn!(
+                            "[strings] Failed to get large UTF16 multi-line string: {} bytes",
+                            data.len()
+                        );
+                        let preview = &data[0..50];
+                        format!("String size: {} bytes. Preview: {preview:?}", data.len())
                     };
                     format!("Failed to get UTF16 multi-line string: {issue}")
                 }
@@ -109,15 +125,17 @@ pub(crate) fn extract_utf8_string(data: &[u8]) -> String {
     match utf8_result {
         Ok(result) => result,
         Err(err) => {
-            warn!("[strings] Failed to get UTF8 string: {err:?}");
-            let max_size = 2097152;
+            let max_size = 100;
             let issue = if data.len() < max_size {
+                warn!("[strings] Failed to get UTF8 string: {err:?}");
                 base64_encode_standard(data)
             } else {
-                format!(
-                    "[strings] Binary data size larger than 2MB, size: {}",
+                warn!(
+                    "[strings] Failed to get large UTF8 string: {} bytes",
                     data.len()
-                )
+                );
+                let preview = &data[0..50];
+                format!("String size: {} bytes. Preview: {preview:?}", data.len())
             };
             format!("[strings] Failed to get UTF8 string: {issue}")
         }
@@ -149,7 +167,11 @@ pub(crate) fn extract_ascii_utf16_string(data: &[u8]) -> String {
             },
         }
     } else {
-        extract_utf16_string(data)
+        let mut result = extract_utf16_string(data);
+        if format!("{result:?}").contains("\\u{") {
+            result = extract_utf8_string(data);
+        }
+        result
     }
 }
 
@@ -331,7 +353,7 @@ mod tests {
         test_location.push("tests/test_data/windows/outlook/windows11/invalid_utf8_email.html");
         let test = read_file(test_location.to_str().unwrap()).unwrap();
 
-        assert_eq!(extract_utf8_string_lossy(&test).len(), 11750);
+        assert_eq!(extract_utf8_string_lossy(&test).len(), 11749);
     }
 
     #[test]
@@ -354,5 +376,61 @@ mod tests {
     fn test_extract_utf16_emoji_registry() {
         let test_data = vec![60, 216, 14, 223, 60, 216, 15, 223, 60, 216, 13, 223];
         assert_eq!(extract_ascii_utf16_string(&test_data), "🌎🌏🌍")
+    }
+
+    #[test]
+    fn test_extract_ascii_utf16_tricky_utf8() {
+        let test = [
+            50, 48, 50, 53, 45, 48, 49, 32, 85, 112, 100, 97, 116, 101, 32, 102, 111, 114, 32, 87,
+            105, 110, 100, 111, 119, 115, 32, 49, 49, 32, 86, 101, 114, 115, 105, 111, 110, 32, 50,
+            52, 72, 50, 32, 102, 111, 114, 32, 65, 82, 77, 54, 52, 45, 98, 97, 115, 101, 100, 32,
+            83, 121, 115, 116, 101, 109, 115, 32, 40, 75, 66, 53, 48, 53, 48, 53, 55, 53, 41, 0, 0,
+        ];
+        let result = extract_ascii_utf16_string(&test);
+        assert_eq!(
+            result,
+            "2025-01 Update for Windows 11 Version 24H2 for ARM64-based Systems (KB5050575)"
+        )
+    }
+
+    #[test]
+    fn test_valid_utf8_but_really_utf16() {
+        let test = [
+            1, 0, 1, 0, 32, 0, 32, 0, 32, 0, 32, 0, 32, 0, 71, 0, 101, 0, 116, 0, 32, 0, 116, 0,
+            111, 0, 32, 0, 107, 0, 110, 0, 111, 0, 119, 0, 32, 0, 121, 0, 111, 0, 117, 0, 114, 0,
+            32, 0, 79, 0, 110, 0, 101, 0, 68, 0, 114, 0, 105, 0, 118, 0, 101, 0, 32, 0, 19, 32, 32,
+            0, 72, 0, 111, 0, 119, 0, 32, 0, 116, 0, 111, 0, 32, 0, 98, 0, 97, 0, 99, 0, 107, 0,
+            32, 0, 117, 0, 112, 0, 32, 0, 121, 0, 111, 0, 117, 0, 114, 0, 32, 0, 80, 0, 67, 0, 32,
+            0, 97, 0, 110, 0, 100, 0, 32, 0, 109, 0, 111, 0, 98, 0, 105, 0, 108, 0, 101, 0,
+        ];
+        let result = extract_ascii_utf16_string(&test);
+        assert_eq!(
+            result,
+            "     Get to know your OneDrive – How to back up your PC and mobile"
+        );
+    }
+
+    #[test]
+    fn test_extract_ascii_utf16_string_japanese() {
+        let test = [
+            14, 102, 187, 108, 95, 0, 14, 102, 95, 0, 77, 0, 101, 0, 105, 0, 106, 0, 105, 0, 95, 0,
+            77, 0, 0, 0,
+        ];
+
+        let result = extract_ascii_utf16_string(&test);
+        assert_eq!(result, "明治_明_Meiji_M");
+    }
+
+    #[test]
+    fn test_string_glyph() {
+        let test = [
+            84, 104, 105, 115, 32, 105, 115, 32, 76, 105, 110, 101, 97, 114, 32, 65, 32, 119, 114,
+            105, 116, 105, 110, 103, 47, 108, 97, 110, 103, 117, 97, 103, 101, 58, 32, 240, 144,
+            152, 143, 240, 144, 152, 145,
+        ];
+        assert_eq!(
+            extract_utf8_string(&test),
+            "This is Linear A writing/language: 𐘏𐘑"
+        );
     }
 }

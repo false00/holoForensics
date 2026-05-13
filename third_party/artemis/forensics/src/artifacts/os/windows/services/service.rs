@@ -1,11 +1,11 @@
 use super::{
     error::ServicesError,
-    options::name::{error_control, failure_actions, service_state, service_type, start_mode},
+    options::name::{error_control, failure_actions, service_type, sid_type, start_mode},
     registry::get_services_data,
 };
-use common::windows::{
-    KeyValue, RegistryData, ServiceError, ServiceState, ServicesData, StartMode,
-};
+#[cfg(target_os = "windows")]
+use crate::artifacts::os::windows::services::state::service_state;
+use common::windows::{KeyValue, RegistryData, ServicesData};
 
 /// Parse Services data from provided Registry file
 pub(crate) fn parse_services(path: &str) -> Result<Vec<ServicesData>, ServicesError> {
@@ -30,7 +30,7 @@ pub(crate) fn parse_services(path: &str) -> Result<Vec<ServicesData>, ServicesEr
         }
 
         // Collected all keys associated with Service. Now parse what we have
-        let service = collect_service(&service_group, &current_service);
+        let service = collect_service(&service_group, &current_service, path);
         services.push(service);
         service_group.clear();
 
@@ -39,34 +39,29 @@ pub(crate) fn parse_services(path: &str) -> Result<Vec<ServicesData>, ServicesEr
         service_group.push(entry);
     }
 
-    // Get last service
-    let last_service = collect_service(&service_group, &current_service);
+    // Get last service collection
+    let last_service = collect_service(&service_group, &current_service, path);
     services.push(last_service);
+
+    // If we are on Windows platform. We can check for the service state
+    #[cfg(target_os = "windows")]
+    service_state(&mut services);
 
     Ok(services)
 }
 
 /// Collect data associated with Service
-fn collect_service(service_data: &Vec<RegistryData>, service_name: &str) -> ServicesData {
+fn collect_service(
+    service_data: &Vec<RegistryData>,
+    service_name: &str,
+    evidence: &str,
+) -> ServicesData {
     let name = service_name.to_string();
 
     let mut service = ServicesData {
-        state: ServiceState::Unknown,
         name,
-        display_name: String::new(),
-        description: String::new(),
-        start_mode: StartMode::Unknown,
-        path: String::new(),
-        service_type: Vec::new(),
-        account: String::new(),
-        modified: String::new(),
-        service_dll: String::new(),
-        failure_command: String::new(),
-        reset_period: 0,
-        failure_actions: Vec::new(),
-        required_privileges: Vec::new(),
-        error_control: ServiceError::Unknown,
-        reg_path: String::new(),
+        evidence: evidence.to_string(),
+        ..Default::default()
     };
 
     for info in service_data {
@@ -107,7 +102,7 @@ fn metadata(value: &KeyValue, service: &mut ServicesData) {
         }
         "ImagePath" => service.path.clone_from(&value.data),
         "ObjectName" => service.account.clone_from(&value.data),
-        "ServiceSidType" => service.state = service_state(&value.data),
+        "ServiceSidType" => service.sid_type = sid_type(&value.data),
         "Start" => service.start_mode = start_mode(&value.data),
         "Type" => service.service_type = service_type(&value.data),
         "FailureCommand" => service.failure_command.clone_from(&value.data),
@@ -128,7 +123,7 @@ mod tests {
         },
         utils::environment::get_systemdrive,
     };
-    use common::windows::{KeyValue, ServiceError, ServiceState, StartMode};
+    use common::windows::KeyValue;
 
     #[test]
     fn test_parse_services() {
@@ -161,7 +156,7 @@ mod tests {
                 continue;
             }
 
-            let service = collect_service(&service_group, &current_service);
+            let service = collect_service(&service_group, &current_service, &path);
             services.push(service);
             service_group.clear();
 
@@ -170,6 +165,7 @@ mod tests {
         }
 
         assert!(services.len() > 10);
+        assert!(services[2].evidence.ends_with("SYSTEM"));
     }
 
     #[test]
@@ -180,24 +176,7 @@ mod tests {
             data_type: "REG_EXPAND_SZ".to_owned(),
         };
 
-        let mut service = ServicesData {
-            state: ServiceState::Unknown,
-            name: String::new(),
-            display_name: String::new(),
-            description: String::new(),
-            start_mode: StartMode::Unknown,
-            path: String::new(),
-            service_type: Vec::new(),
-            account: String::new(),
-            modified: String::new(),
-            service_dll: String::new(),
-            failure_command: String::new(),
-            reset_period: 0,
-            failure_actions: Vec::new(),
-            required_privileges: Vec::new(),
-            error_control: ServiceError::Unknown,
-            reg_path: String::new(),
-        };
+        let mut service = ServicesData::default();
 
         metadata(&test, &mut service);
         assert_eq!(

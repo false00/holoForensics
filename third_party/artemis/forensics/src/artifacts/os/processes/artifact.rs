@@ -15,12 +15,8 @@ pub(crate) fn processes(
         sha256: options.sha256,
     };
 
-    let results = proc_list(&hashes, options.metadata, filter, output);
-    if results.is_err() {
-        warn!(
-            "[forensics] Failed to get process list: {:?}",
-            results.unwrap_err()
-        );
+    if let Err(result) = proc_list(&hashes, options.metadata, filter, output) {
+        warn!("[forensics] Failed to get process list: {result:?}");
         return Err(ProcessError::ProcessList);
     }
 
@@ -40,15 +36,9 @@ mod tests {
             directory: directory.to_string(),
             format: String::from("jsonl"),
             compress,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: Some(String::new()),
-            filter_script: Some(String::new()),
-            logging: Some(String::new()),
+            ..Default::default()
         }
     }
 

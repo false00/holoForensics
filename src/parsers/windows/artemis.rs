@@ -159,10 +159,11 @@ pub fn build_shortcuts(root: &Path, family: &ParserFamily) -> Result<Vec<Plan>> 
 
 pub fn collect_shortcuts(plan: &Plan, output_dir: &Path) -> Result<(PathBuf, PathBuf)> {
     collect_directory_batch(plan, output_dir, is_shortcut_file, |source_path| {
+        let glob = source_path.join("*.lnk");
         artifact_from_json(json!({
             "artifact_name": "shortcuts",
             "shortcuts": {
-                "path": source_path.display().to_string()
+                "dir": glob.display().to_string()
             }
         }))
     })
@@ -242,14 +243,7 @@ pub fn build_jump_lists(root: &Path, family: &ParserFamily) -> Result<Vec<Plan>>
 }
 
 pub fn collect_jump_lists(plan: &Plan, output_dir: &Path) -> Result<(PathBuf, PathBuf)> {
-    collect_file_batch(plan, output_dir, is_jump_list_file, |source_path| {
-        artifact_from_json(json!({
-            "artifact_name": "jumplists",
-            "jumplists": {
-                "alt_file": source_path.display().to_string()
-            }
-        }))
-    })
+    collect_file_batch(plan, output_dir, is_jump_list_file, jump_lists_artifact)
 }
 
 pub fn build_recycle_bin(root: &Path, family: &ParserFamily) -> Result<Vec<Plan>> {
@@ -486,8 +480,10 @@ fn run_artemis_once(
             url: None,
             api_key: None,
             logging: Some("warn".to_string()),
+            ..Output::default()
         },
         artifacts: vec![artifact],
+        marker: None,
     };
 
     artemis_collection(&mut collection).context("run Artemis parser")?;
@@ -654,6 +650,15 @@ fn artifact_from_json(value: Value) -> Result<ArtemisArtifacts> {
     serde_json::from_value::<ArtemisArtifacts>(value).context("build Artemis configuration")
 }
 
+fn jump_lists_artifact(source_path: &Path) -> Result<ArtemisArtifacts> {
+    artifact_from_json(json!({
+        "artifact_name": "jumplists",
+        "jumplists": {
+            "alt_dir": source_path.display().to_string()
+        }
+    }))
+}
+
 fn is_prefetch_file(path: &Path) -> bool {
     path.extension()
         .and_then(|value| value.to_str())
@@ -776,12 +781,13 @@ fn is_shimdb_file(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::Path;
 
     use tempfile::tempdir;
 
     use serde_json::json;
 
-    use super::{artifact_from_json, build_mft, build_prefetch};
+    use super::{artifact_from_json, build_mft, build_prefetch, jump_lists_artifact};
     use crate::parser_catalog::ParserFamily;
 
     #[test]
@@ -840,7 +846,7 @@ mod tests {
         let artifact = artifact_from_json(json!({
             "artifact_name": "shortcuts",
             "shortcuts": {
-                "path": r"C:\evidence\Users\juanc\Desktop"
+                "dir": r"C:\evidence\Users\juanc\Desktop\*.lnk"
             }
         }));
 
@@ -848,14 +854,77 @@ mod tests {
     }
 
     #[test]
-    fn jumplists_configuration_matches_artemis_schema() {
-        let artifact = artifact_from_json(json!({
-            "artifact_name": "jumplists",
-            "jumplists": {
-                "alt_file": r"C:\evidence\Users\juanc\AppData\Roaming\Microsoft\Windows\Recent\AutomaticDestinations\123.automaticDestinations-ms"
-            }
-        }));
+    fn jumplists_configuration_preserves_alt_dir() {
+        let path = Path::new(
+            r"C:\evidence\Users\juanc\AppData\Roaming\Microsoft\Windows\Recent\AutomaticDestinations\123.automaticDestinations-ms",
+        );
 
-        assert!(artifact.is_ok());
+        let artifact = jump_lists_artifact(path).unwrap();
+
+        assert_eq!(
+            artifact
+                .jumplists
+                .and_then(|options| options.alt_dir)
+                .as_deref(),
+            Some(path.to_str().unwrap())
+        );
+    }
+
+    #[test]
+    fn core_windows_artemis_configurations_match_schema() {
+        let artifacts = [
+            json!({
+                "artifact_name": "prefetch",
+                "prefetch": {
+                    "alt_dir": r"C:\evidence\Windows\Prefetch"
+                }
+            }),
+            json!({
+                "artifact_name": "eventlogs",
+                "eventlogs": {
+                    "alt_file": null,
+                    "alt_dir": r"C:\evidence\Windows\System32\winevt\Logs",
+                    "include_templates": false,
+                    "dump_templates": false,
+                    "alt_template_file": null,
+                    "only_templates": false
+                }
+            }),
+            json!({
+                "artifact_name": "mft",
+                "mft": {
+                    "alt_file": r"C:\evidence\C\$MFT.bin",
+                    "alt_drive": null
+                }
+            }),
+            json!({
+                "artifact_name": "bits",
+                "bits": {
+                    "alt_file": r"C:\evidence\ProgramData\Microsoft\Network\Downloader\qmgr.db",
+                    "carve": false
+                }
+            }),
+            json!({
+                "artifact_name": "search",
+                "search": {
+                    "alt_file": r"C:\evidence\ProgramData\Microsoft\Search\Data\Applications\Windows\Windows.edb"
+                }
+            }),
+            json!({
+                "artifact_name": "outlook",
+                "outlook": {
+                    "alt_file": r"C:\evidence\Users\juanc\AppData\Local\Microsoft\Outlook\mail.ost",
+                    "include_attachments": false,
+                    "start_date": null,
+                    "end_date": null,
+                    "yara_rule_message": null,
+                    "yara_rule_attachment": null
+                }
+            }),
+        ];
+
+        for artifact in artifacts {
+            assert!(artifact_from_json(artifact).is_ok());
+        }
     }
 }

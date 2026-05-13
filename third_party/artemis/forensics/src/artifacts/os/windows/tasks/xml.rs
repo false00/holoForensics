@@ -1,6 +1,7 @@
 use super::{
     error::TaskError,
     schemas::{actions::parse_actions, registration::parse_registration, triggers::parse_trigger},
+    text::read_text_unescaped,
 };
 use crate::utils::encoding::read_xml;
 use crate::{
@@ -43,7 +44,7 @@ fn process_xml(xml: &str, path: &str) -> Result<TaskXml, TaskError> {
             send_email: Vec::new(),
             show_message: Vec::new(),
         },
-        path: path.to_string(),
+        evidence: path.to_string(),
     };
 
     // Track Principals
@@ -79,7 +80,7 @@ fn process_xml(xml: &str, path: &str) -> Result<TaskXml, TaskError> {
                 }
                 b"Data" => {
                     task_xml.data = Some(base64_encode_standard(
-                        reader.read_text(tag.name()).unwrap_or_default().as_bytes(),
+                        read_text_unescaped(&mut reader, tag.name()).as_bytes(),
                     ));
                 }
                 _ => (),
@@ -109,7 +110,43 @@ mod tests {
 
         assert_ne!(result.principals, None);
         assert_eq!(result.actions.exec.len(), 1);
-        assert_eq!(result.path, test_location.display().to_string())
+        assert_eq!(result.evidence, test_location.display().to_string())
+    }
+
+    #[test]
+    fn test_parse_xml_com() {
+        let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        test_location.push("tests/test_data/windows/tasks/win11/MobilityManager");
+
+        let result = parse_xml(&test_location.display().to_string()).unwrap();
+        assert_eq!(
+            result.principals.as_ref().unwrap()[0]
+                .user_id
+                .as_ref()
+                .unwrap(),
+            "S-1-5-19"
+        );
+        assert_eq!(result.actions.com_handler.len(), 1);
+        assert_eq!(result.evidence, test_location.display().to_string());
+        assert!(result.triggers.unwrap().event[0].subscription[0].contains("<QueryList>"));
+    }
+
+    #[test]
+    fn test_parse_xml_win11() {
+        let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        test_location.push("tests/test_data/windows/tasks/win11/SoftLandingCreativeManagementTask");
+
+        let result = parse_xml(&test_location.display().to_string()).unwrap();
+        assert_eq!(
+            result.actions.com_handler[0].class_id,
+            String::from("{F576B2F9-7850-4226-ADB0-E5993FED4F02}")
+        );
+        assert_eq!(
+            result.registration_info.unwrap().uri.unwrap(),
+            String::from(
+                "\\SoftLanding\\S-1-5-21-476446702-302789185-3387769606-1001\\SoftLandingCreativeManagementTask"
+            )
+        );
     }
 
     #[test]
@@ -122,6 +159,30 @@ mod tests {
 
         assert_ne!(result.principals, None);
         assert_eq!(result.actions.exec.len(), 1);
-        assert_eq!(result.path, test_location.display().to_string())
+        assert_eq!(result.evidence, test_location.display().to_string())
+    }
+
+    #[test]
+    fn test_process_xml_unescapes_field_values() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Task>
+  <RegistrationInfo>
+    <URI>\Test</URI>
+    <Description>Install &amp; Configure</Description>
+  </RegistrationInfo>
+  <Actions>
+    <Exec>
+      <Command>cmd.exe /c echo A &amp; B</Command>
+    </Exec>
+  </Actions>
+</Task>"#;
+
+        let result = process_xml(xml, "C:\\Windows\\System32\\Tasks\\Test").unwrap();
+
+        assert_eq!(
+            result.registration_info.unwrap().description.unwrap(),
+            "Install & Configure"
+        );
+        assert_eq!(result.actions.exec[0].command, "cmd.exe /c echo A & B");
     }
 }

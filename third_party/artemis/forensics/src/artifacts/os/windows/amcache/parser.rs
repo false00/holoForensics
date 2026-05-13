@@ -13,6 +13,7 @@
 use super::error::AmcacheError;
 use crate::{
     artifacts::os::windows::registry::helper::get_registry_keys,
+    filesystem::metadata::glob_paths,
     structs::artifacts::os::windows::AmcacheOptions,
     utils::{environment::get_systemdrive, regex_options::create_regex},
 };
@@ -29,7 +30,7 @@ pub(crate) fn grab_amcache(options: &AmcacheOptions) -> Result<Vec<Amcache>, Amc
     let drive = match drive_result {
         Ok(result) => result,
         Err(err) => {
-            error!("[amcache] Could not get default systemdrive letter: {err:?}");
+            error!("[amcache] Could not get default system drive letter: {err:?}");
             return Err(AmcacheError::DefaultDrive);
         }
     };
@@ -44,13 +45,13 @@ fn alt_amcache(path: &str) -> Result<Vec<Amcache>, AmcacheError> {
 /// Based on Windows version get the path to `Amcache` file
 fn amcache_file(drive: char) -> Result<Vec<Amcache>, AmcacheError> {
     let mut entries = Vec::new();
-    let paths = vec![
-        format!("{drive}:\\Windows\\appcompat\\Programs\\Amcache.hve"),
-        format!("{drive}:\\Windows\\AppCompat\\Programs\\Amcache.hve"),
-    ];
-
+    let pattern = format!("{drive}:\\Windows\\*\\Programs\\Amcache.hve");
+    let paths = glob_paths(&pattern).unwrap_or_default();
     for path in paths {
-        let results = parse_amcache(&path);
+        if !path.is_file {
+            continue;
+        }
+        let results = parse_amcache(&path.full_path);
         let mut amcache = match results {
             Ok(result) => result,
             Err(_err) => continue,
@@ -82,36 +83,16 @@ fn parse_amcache(path: &str) -> Result<Vec<Amcache>, AmcacheError> {
 
     let mut amcache_vec: Vec<Amcache> = Vec::new();
     for entry in amcache {
-        let mut amcache_entry = Amcache {
-            last_modified: entry.last_modified.clone(),
-            path: String::new(),
-            name: String::new(),
-            original_name: String::new(),
-            version: String::new(),
-            binary_type: String::new(),
-            product_version: String::new(),
-            product_name: String::new(),
-            language: String::new(),
-            file_id: String::new(),
-            link_date: String::new(),
-            path_hash: String::new(),
-            program_id: String::new(),
-            publisher: String::new(),
-            usn: String::new(),
-            size: String::new(),
-            sha1: String::new(),
-            reg_path: entry.path.clone(),
-            source_path: entry.registry_path.clone(),
-        };
-
         let old_path_depth = 5;
-        if entry.path.contains("Root\\File\\") && entry.path.split('\\').count() == old_path_depth {
-            extract_old_path(entry, &mut amcache_entry);
+        let amcache_entry = if entry.path.contains("Root\\File\\")
+            && entry.path.split('\\').count() == old_path_depth
+        {
+            extract_old_path(entry)
         } else if entry.path.contains("InventoryApplicationFile") {
-            extract_entry(entry, &mut amcache_entry);
+            extract_entry(entry)
         } else {
             continue;
-        }
+        };
 
         amcache_vec.push(amcache_entry);
     }
@@ -119,7 +100,13 @@ fn parse_amcache(path: &str) -> Result<Vec<Amcache>, AmcacheError> {
 }
 
 /// Older versions of `Amcache` (Windows 8 and 8.1) used numbers to represent Value names
-fn extract_old_path(entry: RegistryData, amcache_entry: &mut Amcache) {
+fn extract_old_path(entry: RegistryData) -> Amcache {
+    let mut amcache_entry = Amcache {
+        evidence: entry.evidence,
+        last_modified: entry.last_modified,
+        reg_path: entry.path,
+        ..Default::default()
+    };
     for value in entry.values {
         match value.value.as_str() {
             "0" => amcache_entry.product_name = value.data,
@@ -138,14 +125,20 @@ fn extract_old_path(entry: RegistryData, amcache_entry: &mut Amcache) {
                 let extra_zeros = 4;
                 amcache_entry.sha1 = adjust_id(&value.data, extra_zeros);
             }
-
             _ => (),
         }
     }
+    amcache_entry
 }
 
 /// Modern versions of `Amcache` have regular Value names
-fn extract_entry(entry: RegistryData, amcache_entry: &mut Amcache) {
+fn extract_entry(entry: RegistryData) -> Amcache {
+    let mut amcache_entry = Amcache {
+        evidence: entry.evidence,
+        last_modified: entry.last_modified,
+        reg_path: entry.path,
+        ..Default::default()
+    };
     // if entry.path contains \\File\\ parse as number or something
     for value in entry.values {
         match value.value.as_str() {
@@ -174,6 +167,8 @@ fn extract_entry(entry: RegistryData, amcache_entry: &mut Amcache) {
             _ => (),
         }
     }
+
+    amcache_entry
 }
 
 /// The IDs associated related to `Amcache` (`ProgramId` and `FileId`) have extra zeros prepended to them.
@@ -297,36 +292,14 @@ mod tests {
         .unwrap();
         let mut amcache_vec: Vec<Amcache> = Vec::new();
         for entry in amcache {
-            let mut amcache_entry = Amcache {
-                last_modified: entry.last_modified.clone(),
-                path: String::new(),
-                name: String::new(),
-                original_name: String::new(),
-                version: String::new(),
-                binary_type: String::new(),
-                product_version: String::new(),
-                product_name: String::new(),
-                language: String::new(),
-                file_id: String::new(),
-                link_date: String::new(),
-                path_hash: String::new(),
-                program_id: String::new(),
-                publisher: String::new(),
-                usn: String::new(),
-                size: String::new(),
-                sha1: String::new(),
-                reg_path: entry.path.clone(),
-                source_path: entry.registry_path.clone(),
-            };
-
             let old_path_depth = 5;
-            if entry.path.contains("Root\\File\\")
+            let amcache_entry = if entry.path.contains("Root\\File\\")
                 && entry.path.split('\\').collect::<Vec<&str>>().len() == old_path_depth
             {
-                extract_old_path(entry, &mut amcache_entry)
+                extract_old_path(entry)
             } else {
                 continue;
-            }
+            };
             amcache_vec.push(amcache_entry);
         }
         assert_eq!(amcache_vec.len(), 2);
@@ -347,35 +320,14 @@ mod tests {
         .unwrap();
         let mut amcache_vec: Vec<Amcache> = Vec::new();
         for entry in amcache {
-            let mut amcache_entry = Amcache {
-                last_modified: entry.last_modified.clone(),
-                path: String::new(),
-                name: String::new(),
-                original_name: String::new(),
-                version: String::new(),
-                binary_type: String::new(),
-                product_version: String::new(),
-                product_name: String::new(),
-                language: String::new(),
-                file_id: String::new(),
-                link_date: String::new(),
-                path_hash: String::new(),
-                program_id: String::new(),
-                publisher: String::new(),
-                usn: String::new(),
-                size: String::new(),
-                sha1: String::new(),
-                reg_path: entry.path.clone(),
-                source_path: entry.registry_path.clone(),
-            };
-
-            if entry.path.contains("InventoryApplicationFile") {
-                extract_entry(entry, &mut amcache_entry)
+            let amcache_entry = if entry.path.contains("InventoryApplicationFile") {
+                extract_entry(entry)
             } else {
                 continue;
-            }
+            };
             amcache_vec.push(amcache_entry);
         }
         assert_eq!(amcache_vec.len(), 2);
+        assert!(amcache_vec[0].evidence.ends_with("Amcache.hve"))
     }
 }

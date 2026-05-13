@@ -1,3 +1,4 @@
+use ext4_fs::structs::{FileType, InodePermissions, InodeType};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -8,7 +9,7 @@ pub struct ElfInfo {
     pub machine_type: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Default, Deserialize)]
 pub struct Journal {
     pub uid: u32,
     pub gid: u32,
@@ -47,10 +48,11 @@ pub struct Journal {
     pub user_unit: String,
     pub custom: HashMap<String, String>,
     pub seqnum: u64,
+    pub evidence: String,
 }
 
 // https://wiki.archlinux.org/title/Systemd/Journal
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Serialize, PartialEq, Default, Deserialize)]
 pub enum Priority {
     Emergency,
     Alert,
@@ -60,11 +62,12 @@ pub enum Priority {
     Notice,
     Informational,
     Debug,
+    #[default]
     None,
 }
 
 // https://wiki.archlinux.org/title/Systemd/Journal
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Serialize, PartialEq, Default, Deserialize)]
 pub enum Facility {
     Kernel,
     User,
@@ -90,5 +93,70 @@ pub enum Facility {
     Local5,
     Local6,
     Local7,
+    #[default]
     None,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct Ext4Filelist {
+    pub full_path: String,
+    pub directory: String,
+    pub filename: String,
+    pub extension: String,
+    pub created: String,
+    pub modified: String,
+    pub changed: String,
+    pub accessed: String,
+    pub size: u64,
+    pub inode: u64,
+    pub file_type: FileType,
+    pub uid: u16,
+    pub gid: u16,
+    pub is_sparse: bool,
+    pub permissions: Vec<InodePermissions>,
+    pub hard_links: u16,
+    pub extended_attributes: HashMap<String, String>,
+    pub inode_type: InodeType,
+    pub md5: String,
+    pub sha1: String,
+    pub sha256: String,
+    pub evidence: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Logon {
+    pub logon_type: LogonType,
+    pub pid: u32,
+    pub terminal: String,
+    pub terminal_id: u32,
+    pub username: String,
+    pub hostname: String,
+    pub termination_status: i16,
+    pub exit_status: i16,
+    pub session: i32,
+    pub timestamp: String,
+    pub microseconds: i32,
+    pub ip: String,
+    pub status: Status,
+    pub evidence: String,
+}
+
+#[derive(Debug, Serialize, PartialEq, Deserialize)]
+pub enum LogonType {
+    Unknown,
+    RunLevel,
+    BootTime,
+    NewTime,
+    OldTime,
+    InitProcess,
+    LoginProcess,
+    UserProcess,
+    DeadProcess,
+    Accounting,
+}
+
+#[derive(Debug, Serialize, PartialEq, Clone, Copy, Deserialize)]
+pub enum Status {
+    Success,
+    Failed,
 }

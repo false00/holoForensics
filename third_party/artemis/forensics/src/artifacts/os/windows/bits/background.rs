@@ -11,13 +11,13 @@ use crate::{
     },
     filesystem::{files::is_file, ntfs::raw_files::raw_read_file},
 };
-use common::windows::{BitsInfo, TableDump, WindowsBits};
+use common::windows::{BitsInfo, FileInfo, JobInfo, JobPriority, JobState, JobType, TableDump};
 use log::error;
 
 /**
  * Parse modern version (Win10+) of BITS which is an ESE database by dumping the `Jobs` and `Files` tables and parsing their contents  
  */
-pub(crate) fn parse_ese_bits(bits_path: &str, carve: bool) -> Result<WindowsBits, BitsError> {
+pub(crate) fn parse_ese_bits(bits_path: &str, carve: bool) -> Result<Vec<BitsInfo>, BitsError> {
     // Dump the Jobs and Files tables from the BITS database
     let files = get_bits_ese(bits_path, "Files")?;
     let jobs_info = get_bits_ese(bits_path, "Jobs")?;
@@ -29,16 +29,15 @@ pub(crate) fn parse_ese_bits(bits_path: &str, carve: bool) -> Result<WindowsBits
 
     for job in &jobs {
         for file in &files_info {
-            if job.file_id == file.file_id {
+            if job.file_ids.contains(&file.file_id) {
                 let bit_info = BitsInfo {
                     job_id: job.job_id.clone(),
-                    file_id: job.file_id.clone(),
+                    file_id: file.file_id.clone(),
                     owner_sid: job.owner_sid.clone(),
                     created: job.created.clone(),
                     modified: job.modified.clone(),
                     completed: job.completed.clone(),
                     expiration: job.expiration.clone(),
-                    files_total: file.files_transferred,
                     bytes_downloaded: file.download_bytes_size,
                     bytes_transferred: file.transfer_bytes_size,
                     job_name: job.job_name.clone(),
@@ -54,7 +53,6 @@ pub(crate) fn parse_ese_bits(bits_path: &str, carve: bool) -> Result<WindowsBits
                     full_path: file.full_path.clone(),
                     filename: file.filename.clone(),
                     target_path: job.target_path.clone(),
-                    tmp_file: file.tmp_fullpath.clone(),
                     volume: file.volume.clone(),
                     url: file.url.clone(),
                     timeout: job.timeout,
@@ -63,26 +61,23 @@ pub(crate) fn parse_ese_bits(bits_path: &str, carve: bool) -> Result<WindowsBits
                     acls: job.acls.clone(),
                     additional_sids: job.additional_sids.clone(),
                     carved: false,
+                    drive: file.drive.clone(),
+                    tmp_fullpath: file.tmp_fullpath.clone(),
+                    evidence: bits_path.to_string(),
                 };
                 bits_info.push(bit_info);
             }
         }
     }
 
-    let mut windows_bits = WindowsBits {
-        bits: bits_info,
-        carved_jobs: Vec::new(),
-        carved_files: Vec::new(),
-    };
     // If we are carving and since this is ESE bits we currently do not combine job and file info
     if carve {
         let is_legacy = false;
         let read_result = raw_read_file(bits_path);
-        if read_result.is_ok() {
-            let (_carved_bits, mut carved_jobs, mut carved_files) =
-                parse_carve(&read_result.unwrap_or_default(), is_legacy);
-            windows_bits.carved_jobs.append(&mut carved_jobs);
-            windows_bits.carved_files.append(&mut carved_files);
+        if let Ok(result) = read_result {
+            let (_carved_bits, carved_jobs, carved_files) =
+                parse_carve(&result, is_legacy, bits_path);
+            add_carved_bits(&mut bits_info, carved_jobs, carved_files, bits_path);
         } else {
             error!(
                 "[bits] Could not read {bits_path} for carving: {:?}",
@@ -90,7 +85,7 @@ pub(crate) fn parse_ese_bits(bits_path: &str, carve: bool) -> Result<WindowsBits
             );
         }
     }
-    Ok(windows_bits)
+    Ok(bits_info)
 }
 
 /// Extract BITs info from ESE database
@@ -129,40 +124,30 @@ pub(crate) fn get_bits_ese(path: &str, table: &str) -> Result<Vec<Vec<TableDump>
 /**
  * Parse older version (pre-Win10) of BITS which is a custom binary format
  */
-pub(crate) fn parse_legacy_bits(systemdrive: char, carve: bool) -> Result<WindowsBits, BitsError> {
+pub(crate) fn parse_legacy_bits(
+    systemdrive: char,
+    carve: bool,
+) -> Result<Vec<BitsInfo>, BitsError> {
     let mut bits_path =
         format!("{systemdrive}:\\ProgramData\\Microsoft\\Network\\Downloader\\qmgr0.dat");
 
-    let mut windows_bits = WindowsBits {
-        bits: Vec::new(),
-        carved_jobs: Vec::new(),
-        carved_files: Vec::new(),
-    };
+    let mut bits = Vec::new();
     if is_file(&bits_path) {
         let mut results = legacy_bits(&bits_path, carve)?;
-        windows_bits.bits.append(&mut results.bits);
-        windows_bits.carved_files.append(&mut results.carved_files);
-        windows_bits.carved_jobs.append(&mut results.carved_jobs);
+        bits.append(&mut results);
     }
     // Legacy BITS has two (2) files
     bits_path = format!("{systemdrive}:\\ProgramData\\Microsoft\\Network\\Downloader\\qmgr1.dat");
     if is_file(&bits_path) {
         let mut results = legacy_bits(&bits_path, carve)?;
-        windows_bits.bits.append(&mut results.bits);
-        windows_bits.carved_files.append(&mut results.carved_files);
-        windows_bits.carved_jobs.append(&mut results.carved_jobs);
+        bits.append(&mut results);
     }
 
-    Ok(windows_bits)
+    Ok(bits)
 }
 
 /// Parse the older BITS file
-pub(crate) fn legacy_bits(path: &str, carve: bool) -> Result<WindowsBits, BitsError> {
-    let mut windows_bits = WindowsBits {
-        bits: Vec::new(),
-        carved_jobs: Vec::new(),
-        carved_files: Vec::new(),
-    };
+pub(crate) fn legacy_bits(path: &str, carve: bool) -> Result<Vec<BitsInfo>, BitsError> {
     let read_results = raw_read_file(path);
     let bits_data = match read_results {
         Ok(results) => results,
@@ -171,18 +156,14 @@ pub(crate) fn legacy_bits(path: &str, carve: bool) -> Result<WindowsBits, BitsEr
             return Err(BitsError::ReadFile);
         }
     };
-    let mut bits = get_legacy_jobs(&bits_data)?;
-    windows_bits.bits.append(&mut bits);
+    let mut bits = get_legacy_jobs(&bits_data, path)?;
 
     if carve {
         let is_legacy = false;
-        let (mut carved_bits, mut carved_jobs, mut carved_files) =
-            parse_carve(&bits_data, is_legacy);
-        windows_bits.carved_jobs.append(&mut carved_jobs);
-        windows_bits.carved_files.append(&mut carved_files);
-        windows_bits.bits.append(&mut carved_bits);
+        let (_carved_bits, carved_jobs, carved_files) = parse_carve(&bits_data, is_legacy, path);
+        add_carved_bits(&mut bits, carved_jobs, carved_files, path);
     }
-    Ok(windows_bits)
+    Ok(bits)
 }
 
 /**
@@ -192,14 +173,101 @@ pub(crate) fn legacy_bits(path: &str, carve: bool) -> Result<WindowsBits, BitsEr
  * For BITS in ESE format (Win10+) BITS jobs and files are separate tables but since we are scanning the whole ESE db  
  * we do not merge the jobs and file info since we cannot determine what links the tables
  */
-fn parse_carve(data: &[u8], is_legacy: bool) -> WinBits {
-    let results = carve_bits(data, is_legacy);
+fn parse_carve(data: &[u8], is_legacy: bool, evidence: &str) -> WinBits {
+    let results = carve_bits(data, is_legacy, evidence);
     match results {
         Ok((_, bits)) => bits,
         Err(_err) => {
             error!("[bits] Could not carve BITS data");
             (Vec::new(), Vec::new(), Vec::new())
         }
+    }
+}
+
+/// Add the carved Jobs and Files to our parsed bits array
+/// We cannot combine them
+fn add_carved_bits(
+    bits: &mut Vec<BitsInfo>,
+    jobs: Vec<JobInfo>,
+    files: Vec<FileInfo>,
+    evidence: &str,
+) {
+    for job in jobs {
+        let bit = BitsInfo {
+            job_id: job.job_id,
+            file_id: String::new(),
+            owner_sid: job.owner_sid,
+            created: job.created,
+            modified: job.modified,
+            completed: job.completed,
+            expiration: job.expiration,
+            bytes_downloaded: 0,
+            bytes_transferred: 0,
+            job_name: job.job_name,
+            job_description: job.job_description,
+            job_command: job.job_command,
+            job_arguments: job.job_arguments,
+            error_count: job.error_count,
+            job_type: job.job_type,
+            job_state: job.job_state,
+            priority: job.priority,
+            flags: job.flags,
+            http_method: job.http_method,
+            full_path: String::new(),
+            filename: String::new(),
+            target_path: job.target_path,
+            volume: String::new(),
+            url: String::new(),
+            timeout: job.timeout,
+            retry_delay: job.retry_delay,
+            transient_error_count: job.transient_error_count,
+            acls: job.acls,
+            additional_sids: job.additional_sids,
+            carved: true,
+            drive: String::new(),
+            tmp_fullpath: String::new(),
+            evidence: evidence.to_string(),
+        };
+        bits.push(bit);
+    }
+
+    for file in files {
+        let bit = BitsInfo {
+            job_id: String::new(),
+            file_id: file.file_id,
+            owner_sid: String::new(),
+            created: String::new(),
+            modified: String::new(),
+            completed: String::new(),
+            expiration: String::new(),
+            bytes_downloaded: file.download_bytes_size,
+            bytes_transferred: file.transfer_bytes_size,
+            job_name: String::new(),
+            job_description: String::new(),
+            job_command: String::new(),
+            job_arguments: String::new(),
+            error_count: 0,
+            job_type: JobType::Unknown,
+            job_state: JobState::Unknown,
+            priority: JobPriority::Unknown,
+            flags: Vec::new(),
+            http_method: String::new(),
+            full_path: file.full_path,
+            filename: file.filename,
+            target_path: String::new(),
+            volume: file.volume,
+            url: file.url,
+            timeout: 0,
+            retry_delay: 0,
+            transient_error_count: 0,
+            acls: Vec::new(),
+            additional_sids: Vec::new(),
+            carved: true,
+            drive: String::new(),
+            tmp_fullpath: String::new(),
+            evidence: evidence.to_string(),
+        };
+        bits.push(bit);
     }
 }
 
@@ -220,7 +288,7 @@ mod tests {
         let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         test_location.push("tests\\test_data\\windows\\ese\\win10\\qmgr.db");
         let results = parse_ese_bits(test_location.to_str().unwrap(), false).unwrap();
-        assert_eq!(results.bits.len(), 1);
+        assert_eq!(results.len(), 1);
     }
 
     #[test]
@@ -234,7 +302,7 @@ mod tests {
     #[test]
     fn test_parse_legacy_bits() {
         let results = parse_legacy_bits('C', false).unwrap();
-        assert_eq!(results.bits.is_empty(), true);
+        assert_eq!(results.is_empty(), true);
     }
 
     #[test]
@@ -242,7 +310,7 @@ mod tests {
         let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         test_location.push("tests\\test_data\\windows\\bits\\win81\\qmgr0.dat");
         let results = legacy_bits(&test_location.to_str().unwrap(), false).unwrap();
-        assert_eq!(results.bits.len(), 1);
+        assert_eq!(results.len(), 1);
     }
 
     #[test]
@@ -250,8 +318,8 @@ mod tests {
         let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         test_location.push("tests/test_data/windows/ese/win10/qmgr.db");
         let data = read_file(test_location.to_str().unwrap()).unwrap();
-        let (_, jobs, files) = parse_carve(&data, false);
-        assert_eq!(jobs.len(), 86);
+        let (_, jobs, files) = parse_carve(&data, false, test_location.to_str().unwrap());
+        assert_eq!(jobs.len(), 106);
         assert_eq!(files.len(), 41);
     }
 }

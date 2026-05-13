@@ -136,7 +136,7 @@ The desktop startup path also reconciles previously tracked shadow copies and pr
 | `macos_browser_history` | macOS | Chrome history |
 | `macos_quarantine_events` | macOS | Quarantine events database |
 
-Most of the additional Windows parser families are routed through the shared adapter in `src/parsers/windows/artemis.rs` and a vendored Artemis v0.16.0 workspace under `third_party/artemis`, while preserving the existing Holo Forensics plan and output contract. The vendored fork keeps the Windows offline-file fixes in-repo for explicit evidence paths. `windows_bits_collection`, `windows_search_collection`, `windows_outlook_collection`, and `windows_shimdb_collection` are parser-only raw-input contracts today.
+Most of the additional Windows parser families are routed through the shared adapter in `src/parsers/windows/artemis.rs` and a vendored Artemis v0.19.0 workspace under `third_party/artemis`, while preserving the existing Holo Forensics plan and output contract. The vendored fork keeps the Windows offline-file fixes in-repo for explicit evidence paths. `windows_bits_collection`, `windows_search_collection`, `windows_outlook_collection`, and `windows_shimdb_collection` are parser-only raw-input contracts today.
 
 Each parser family is bound to an explicit collection contract and documented in the [Parser index](parsers/README.md).
 

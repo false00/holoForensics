@@ -1,3 +1,4 @@
+use crate::artifacts::os::windows::tasks::text::read_text_unescaped;
 use common::windows::RegistrationInfo;
 use log::error;
 use quick_xml::{Reader, events::Event};
@@ -24,40 +25,33 @@ pub(crate) fn parse_registration(reader: &mut Reader<&[u8]>) -> RegistrationInfo
             Ok(Event::Eof) => break,
             Ok(Event::Start(tag)) => match tag.name().as_ref() {
                 b"URI" => {
-                    info.uri = Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    info.uri = Some(read_text_unescaped(reader, tag.name()));
                 }
                 b"SecurityDescriptor" => {
-                    info.sid = Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    info.sid = Some(read_text_unescaped(reader, tag.name()));
                 }
                 b"Source" => {
-                    info.source =
-                        Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    info.source = Some(read_text_unescaped(reader, tag.name()));
                 }
                 b"Date" => {
-                    info.date = Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    info.date = Some(read_text_unescaped(reader, tag.name()));
                 }
                 b"Author" => {
-                    info.author =
-                        Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    info.author = Some(read_text_unescaped(reader, tag.name()));
                 }
                 b"Version" => {
-                    info.version =
-                        Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    info.version = Some(read_text_unescaped(reader, tag.name()));
                 }
                 b"Description" => {
-                    info.description =
-                        Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    info.description = Some(read_text_unescaped(reader, tag.name()));
                 }
                 b"Documentation" => {
-                    info.documentation =
-                        Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    info.documentation = Some(read_text_unescaped(reader, tag.name()));
                 }
                 _ => break,
             },
-            Ok(Event::End(tag)) => {
-                if tag.name().as_ref() == b"RegistrationInfo" {
-                    break;
-                }
+            Ok(Event::End(tag)) if tag.name().as_ref() == b"RegistrationInfo" => {
+                break;
             }
             _ => (),
         }
@@ -98,6 +92,44 @@ mod tests {
                         assert_eq!(
                             reg_info.author,
                             Some(String::from("Microsoft VisualStudio"))
+                        );
+                    }
+                    _ => (),
+                },
+                _ => (),
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_registration_win11() {
+        let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        test_location.push("tests/test_data/windows/tasks/win11/SoftLandingCreativeManagementTask");
+
+        let xml = read_xml(&test_location.display().to_string()).unwrap();
+        let mut reader = Reader::from_str(&xml);
+        reader.config_mut().trim_text(true);
+
+        loop {
+            match reader.read_event() {
+                Err(_) => {
+                    break;
+                }
+                Ok(Event::Eof) => break,
+                Ok(Event::Start(tag)) => match tag.name().as_ref() {
+                    b"RegistrationInfo" => {
+                        let reg_info = parse_registration(&mut reader);
+                        assert_eq!(
+                            reg_info.uri,
+                            Some(String::from(
+                                "\\SoftLanding\\S-1-5-21-476446702-302789185-3387769606-1001\\SoftLandingCreativeManagementTask"
+                            ))
+                        );
+                        assert_eq!(
+                            reg_info.sid,
+                            Some(String::from(
+                                "D:P(A;;FA;;;SY)(A;CI;0x80010000;;;WD)(A;;FA;;;S-1-5-21-476446702-302789185-3387769606-1001)"
+                            ))
                         );
                     }
                     _ => (),

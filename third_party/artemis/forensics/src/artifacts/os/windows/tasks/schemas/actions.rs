@@ -1,3 +1,4 @@
+use crate::artifacts::os::windows::tasks::text::read_text_unescaped;
 use common::windows::{Actions, ComHandlerType, ExecType, Message, SendEmail};
 use log::error;
 use quick_xml::{Reader, events::Event};
@@ -26,10 +27,8 @@ pub(crate) fn parse_actions(reader: &mut Reader<&[u8]>) -> Actions {
                 b"ShowMessage" => info.show_message.push(process_message(reader)),
                 _ => break,
             },
-            Ok(Event::End(tag)) => {
-                if tag.name().as_ref() == b"Actions" {
-                    break;
-                }
+            Ok(Event::End(tag)) if tag.name().as_ref() == b"Actions" => {
+                break;
             }
             _ => (),
         }
@@ -55,22 +54,18 @@ fn process_exec(reader: &mut Reader<&[u8]>) -> ExecType {
             Ok(Event::Eof) => break,
             Ok(Event::Start(tag)) => match tag.name().as_ref() {
                 b"Command" => {
-                    exec.command = reader.read_text(tag.name()).unwrap_or_default().to_string();
+                    exec.command = read_text_unescaped(reader, tag.name());
                 }
                 b"Arguments" => {
-                    exec.arguments =
-                        Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    exec.arguments = Some(read_text_unescaped(reader, tag.name()));
                 }
                 b"WorkingDirectory" => {
-                    exec.working_directory =
-                        Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    exec.working_directory = Some(read_text_unescaped(reader, tag.name()));
                 }
                 _ => break,
             },
-            Ok(Event::End(tag)) => {
-                if tag.name().as_ref() == b"Exec" {
-                    break;
-                }
+            Ok(Event::End(tag)) if tag.name().as_ref() == b"Exec" => {
+                break;
             }
             _ => (),
         }
@@ -79,7 +74,7 @@ fn process_exec(reader: &mut Reader<&[u8]>) -> ExecType {
     exec
 }
 
-/// Parse `COMHander` Task Action
+/// Parse `COMHandler` Task Action
 fn process_com(reader: &mut Reader<&[u8]>) -> ComHandlerType {
     let mut com = ComHandlerType {
         class_id: String::new(),
@@ -95,17 +90,15 @@ fn process_com(reader: &mut Reader<&[u8]>) -> ComHandlerType {
             Ok(Event::Eof) => break,
             Ok(Event::Start(tag)) => match tag.name().as_ref() {
                 b"ClassId" => {
-                    com.class_id = reader.read_text(tag.name()).unwrap_or_default().to_string();
+                    com.class_id = read_text_unescaped(reader, tag.name());
                 }
                 b"Data" => {
-                    com.data = Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    com.data = Some(read_text_unescaped(reader, tag.name()));
                 }
                 _ => break,
             },
-            Ok(Event::End(tag)) => {
-                if tag.name().as_ref() == b"ComHandler " {
-                    break;
-                }
+            Ok(Event::End(tag)) if tag.name().as_ref() == b"ComHandler" => {
+                break;
             }
             _ => (),
         }
@@ -142,44 +135,39 @@ fn process_email(reader: &mut Reader<&[u8]>) -> SendEmail {
             Ok(Event::Eof) => break,
             Ok(Event::Start(tag)) => match tag.name().as_ref() {
                 b"Server" => {
-                    email.server =
-                        Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    email.server = Some(read_text_unescaped(reader, tag.name()));
                 }
                 b"Subject" => {
-                    email.subject =
-                        Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    email.subject = Some(read_text_unescaped(reader, tag.name()));
                 }
                 b"To" => {
-                    email.to = Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    email.to = Some(read_text_unescaped(reader, tag.name()));
                 }
                 b"Cc" => {
-                    email.cc = Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    email.cc = Some(read_text_unescaped(reader, tag.name()));
                 }
                 b"Bcc" => {
-                    email.bcc = Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    email.bcc = Some(read_text_unescaped(reader, tag.name()));
                 }
                 b"ReplyTo" => {
-                    email.reply_to =
-                        Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    email.reply_to = Some(read_text_unescaped(reader, tag.name()));
                 }
                 b"From" => {
-                    email.from = reader.read_text(tag.name()).unwrap_or_default().to_string();
+                    email.from = read_text_unescaped(reader, tag.name());
                 }
                 b"Name" => {
-                    header_key = reader.read_text(tag.name()).unwrap_or_default().to_string();
+                    header_key = read_text_unescaped(reader, tag.name());
                 }
                 b"Value" => {
-                    header_value = reader.read_text(tag.name()).unwrap_or_default().to_string();
+                    header_value = read_text_unescaped(reader, tag.name());
                 }
                 b"File" => {
-                    attachments.push(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    attachments.push(read_text_unescaped(reader, tag.name()));
                 }
                 _ => (),
             },
-            Ok(Event::End(tag)) => {
-                if tag.name().as_ref() == b"SendEmail " {
-                    break;
-                }
+            Ok(Event::End(tag)) if tag.name().as_ref() == b"SendEmail" => {
+                break;
             }
             _ => (),
         }
@@ -215,18 +203,15 @@ fn process_message(reader: &mut Reader<&[u8]>) -> Message {
             Ok(Event::Eof) => break,
             Ok(Event::Start(tag)) => match tag.name().as_ref() {
                 b"Body" => {
-                    message.body = reader.read_text(tag.name()).unwrap_or_default().to_string();
+                    message.body = read_text_unescaped(reader, tag.name());
                 }
                 b"Title" => {
-                    message.title =
-                        Some(reader.read_text(tag.name()).unwrap_or_default().to_string());
+                    message.title = Some(read_text_unescaped(reader, tag.name()));
                 }
                 _ => break,
             },
-            Ok(Event::End(tag)) => {
-                if tag.name().as_ref() == b"ShowMessage  " {
-                    break;
-                }
+            Ok(Event::End(tag)) if tag.name().as_ref() == b"ShowMessage" => {
+                break;
             }
             _ => (),
         }
@@ -247,7 +232,7 @@ mod tests {
         let xml = r#"
         <Exec>
         <Command>C:\Program Files (x86)\Microsoft Visual Studio\Installer\resources\app\ServiceHub\Services\Microsoft.VisualStudio.Setup.Service\VSIXAutoUpdate.exe</Command>
-      </Exec>
+        </Exec>
              "#;
 
         let mut reader = Reader::from_str(xml);
@@ -256,6 +241,20 @@ mod tests {
         assert_eq!(
             result.exec[0].command,
             "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\resources\\app\\ServiceHub\\Services\\Microsoft.VisualStudio.Setup.Service\\VSIXAutoUpdate.exe"
+        );
+    }
+
+    #[test]
+    fn test_parse_actions_com() {
+        let xml = r#"    <ComHandler>
+        <ClassId>{C463A0FC-794F-4FDF-9201-01938CEACAFA}</ClassId>
+        </ComHandler>"#;
+        let mut reader = Reader::from_str(xml);
+        reader.config_mut().trim_text(true);
+        let result = parse_actions(&mut reader);
+        assert_eq!(
+            result.com_handler[0].class_id,
+            "{C463A0FC-794F-4FDF-9201-01938CEACAFA}"
         );
     }
 

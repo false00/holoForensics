@@ -22,21 +22,23 @@ use crate::{
         files::{is_file, list_files, list_files_directories},
     },
     structs::{artifacts::os::linux::JournalOptions, toml::Output},
+    utils::time,
 };
 use common::linux::Journal;
 
 /// Parse and grab `Journal` entries at default paths. This can be changed though via /etc/systemd/journald.conf
 pub(crate) fn grab_journal(
     output: &mut Output,
-    start_time: u64,
     filter: bool,
     options: &JournalOptions,
 ) -> Result<(), JournalError> {
-    let paths = if let Some(alt_path) = &options.alt_path {
-        vec![alt_path.clone()]
+    let start_time = time::time_now();
+
+    let paths = if let Some(alt_dir) = &options.alt_dir {
+        vec![alt_dir.clone()]
     } else {
         let persist = "/var/log/journal/";
-        let tmp = "/run/systemd/journal";
+        let tmp = "/run/log/journal/";
         let mut logs = list_files_directories(persist).unwrap_or_default();
         let mut tmp_files = list_files_directories(tmp).unwrap_or_default();
 
@@ -45,7 +47,7 @@ pub(crate) fn grab_journal(
     };
 
     for path in paths {
-        if is_file(&path) && !path.ends_with("journal") {
+        if is_file(&path) && !path.contains(".journal") {
             continue;
         }
         if is_file(&path) {
@@ -53,10 +55,11 @@ pub(crate) fn grab_journal(
             continue;
         }
 
+        // Journal files may be stored in a namespace folder. Check one more directory
         if is_directory(&path) {
             let log_files = list_files(&path).unwrap_or_default();
             for log in log_files {
-                if is_file(&log) && !log.ends_with("journal") {
+                if is_file(&log) && !log.contains(".journal") {
                     continue;
                 }
                 if is_file(&log) {
@@ -71,7 +74,7 @@ pub(crate) fn grab_journal(
 
 /// Parse a `Journal` file and return its entries
 pub(crate) fn grab_journal_file(path: &str) -> Result<Vec<Journal>, JournalError> {
-    if !is_file(path) || !path.ends_with("journal") {
+    if !is_file(path) || !path.contains(".journal") {
         return Err(JournalError::NotJournal);
     }
 
@@ -93,22 +96,16 @@ mod tests {
             directory: directory.to_string(),
             format: String::from("jsonl"),
             compress,
-            timeline: false,
-            url: Some(String::new()),
-            api_key: Some(String::new()),
             endpoint_id: String::from("abcd"),
-            collection_id: 0,
             output: output.to_string(),
-            filter_name: Some(String::new()),
-            filter_script: Some(String::new()),
-            logging: Some(String::new()),
+            ..Default::default()
         }
     }
 
     #[test]
     fn test_grab_journal() {
         let mut output = output_options("grab_journal", "local", "./tmp", false);
-        grab_journal(&mut output, 0, false, &JournalOptions { alt_path: None }).unwrap();
+        grab_journal(&mut output, false, &JournalOptions { alt_dir: None }).unwrap();
     }
 
     #[test]

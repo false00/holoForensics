@@ -46,81 +46,24 @@ pub(crate) fn bits(data: &mut Value) -> Option<()> {
     let mut entries = Vec::new();
 
     for values in data.as_array_mut()? {
-        let mut temp = Value::Null;
-        let bits = if let Some(value) = values.get_mut("data").unwrap_or(&mut temp).get_mut("bits")
-        {
+        let entry = if let Some(value) = values.get_mut("data") {
             value
         } else {
-            values.get_mut("bits")?
+            values
         };
-        // First get full BITS jobs
-        for entry in bits.as_array_mut()? {
-            entry["message"] = Value::String(format!(
-                "Job: {} - Target Path: {}",
-                entry["job_name"].as_str()?,
-                entry["target_path"].as_str()?
-            ));
-            entry["artifact"] = Value::String(String::from("BITS"));
-            entry["data_type"] = Value::String(String::from("windows:ese:bits:entry"));
+        entry["message"] = Value::String(format!(
+            "Job: {} - Target Path: {}",
+            entry["job_name"].as_str()?,
+            entry["target_path"].as_str()?
+        ));
+        entry["artifact"] = Value::String(String::from("BITS"));
+        entry["data_type"] = Value::String(String::from("windows:ese:bits:entry"));
 
-            let temp = entry.clone();
-            let times = extract_bits_times(&temp)?;
-            for (key, value) in times {
-                entry["datetime"] = Value::String(key.into());
-                entry["timestamp_desc"] = Value::String(value);
-                entries.push(entry.clone());
-            }
-        }
-
-        // Now get carved jobs
-        let mut jobs = if let Some(value) = values
-            .get_mut("data")
-            .unwrap_or(&mut temp)
-            .get_mut("carved_jobs")
-        {
-            value.clone()
-        } else {
-            values.get_mut("carved_jobs")?.clone()
-        };
-        // Get carved Jobs
-        for entry in jobs.as_array_mut()? {
-            entry["message"] = Value::String(format!(
-                "Job: {} - Target Path: {}",
-                entry["job_name"].as_str()?,
-                entry["target_path"].as_str()?
-            ));
-            entry["artifact"] = Value::String(String::from("BITS Carved Job"));
-            entry["data_type"] = Value::String(String::from("windows:ese:bits:carve:job"));
-
-            let temp = entry.clone();
-            let times = extract_bits_times(&temp)?;
-            for (key, value) in times {
-                entry["datetime"] = Value::String(key.into());
-                entry["timestamp_desc"] = Value::String(format!("Carved {value}"));
-                entries.push(entry.clone());
-            }
-        }
-
-        // Now get carved files
-        let mut files = if let Some(value) = values
-            .get_mut("data")
-            .unwrap_or(&mut temp)
-            .get_mut("carved_files")
-        {
-            value.clone()
-        } else {
-            values.get_mut("carved_files")?.clone()
-        };
-        for entry in files.as_array_mut()? {
-            entry["message"] = Value::String(format!(
-                "File: {} - URL: {}",
-                entry["target_path"].as_str()?,
-                entry["url"].as_str()?
-            ));
-            entry["artifact"] = Value::String(String::from("Carved BITS File"));
-            entry["data_type"] = Value::String(String::from("windows:ese:bits:carve:file"));
-            entry["datetime"] = Value::String(String::from("1601-01-01T00:00:00.000Z"));
-            entry["timestamp_desc"] = Value::String(String::from("BITS Carved File"));
+        let temp = entry.clone();
+        let times = extract_bits_times(&temp)?;
+        for (key, value) in times {
+            entry["datetime"] = Value::String(key.into());
+            entry["timestamp_desc"] = Value::String(value);
             entries.push(entry.clone());
         }
     }
@@ -205,7 +148,6 @@ pub(crate) fn jumplists(data: &mut Value) -> Option<()> {
         entry["data_type"] = Value::String(String::from("windows:jumplist:entry"));
 
         let temp = entry.clone();
-        let times = extract_shortcut_times(&temp["lnk_info"])?;
 
         entry.as_object_mut()?.remove("lnk_info");
 
@@ -223,6 +165,9 @@ pub(crate) fn jumplists(data: &mut Value) -> Option<()> {
         for (key, value) in temp["jumplist_metadata"].as_object()? {
             if key == "path" {
                 entry["jumplist_target"] = value.clone();
+                if entry["message"] == Value::String(String::new()) {
+                    entry["message"] = value.clone();
+                }
                 continue;
             } else if key == "modified" {
                 entry["entry_modified"] = value.clone();
@@ -231,6 +176,12 @@ pub(crate) fn jumplists(data: &mut Value) -> Option<()> {
             entry[key] = value.clone();
         }
         entry.as_object_mut()?.remove("jumplist_metadata");
+
+        if entry["message"] == Value::String(String::new()) {
+            entry["message"] = entry["path"].clone();
+        }
+
+        let times = extract_shortcut_times(&temp["lnk_info"])?;
 
         for (key, value) in times {
             entry["datetime"] = Value::String(key.into());
@@ -304,6 +255,12 @@ pub(crate) fn raw_files(data: &mut Value) -> Option<()> {
         let mut times = extract_times(&temp)?;
         extract_filename_times(&temp, &mut times)?;
         for (key, value) in times {
+            // If $INDX recovery is enabled. Standard Info timestamps will be empty
+            // We will only have FileName timestamps
+            // Skip emtpy Standard Info timestamps
+            if key.is_empty() {
+                continue;
+            }
             entry["datetime"] = Value::String(key.into());
             entry["timestamp_desc"] = Value::String(value);
             entries.push(entry.clone());
@@ -347,7 +304,7 @@ pub(crate) fn prefetch(data: &mut Value) -> Option<()> {
 
         entry["artifact"] = Value::String(String::from("Prefetch"));
         entry["data_type"] = Value::String(String::from("windows:prefetch:file"));
-        entry["message"] = Value::String(entry["path"].as_str()?.into());
+        entry["message"] = Value::String(entry["evidence"].as_str()?.into());
         entry["datetime"] = entry["last_run_time"].as_str()?.into();
         entry["timestamp_desc"] = Value::String(String::from("Prefetch Last Execution"));
         entries.push(entry.clone());
@@ -527,24 +484,59 @@ pub(crate) fn shimdb(data: &mut Value) -> Option<()> {
 
         let temp = entry.clone();
         entry.as_object_mut()?.remove("db_data");
+        entry["message"] = Value::String(format!("{} | Shim: None", temp["evidence"].as_str()?,));
 
         // Flatten db_data
         for (key, value) in temp["db_data"].as_object()? {
             if key == "list_data" {
-                // If we parsed the sysmain.sdb file. This will be a lot of data
+                // If we parsed the sysmain.sdb file. This will be a ton of data
                 for tag in value.as_array().unwrap_or(&Vec::new()) {
-                    entry["message"] = Value::String(format!(
-                        "{} | Shim Tag Name: {}",
-                        temp["sdb_path"].as_str()?,
-                        tag["data"].as_object()?["TAG_NAME"].as_str().unwrap_or("")
-                    ));
-                    entry["list_data"] = tag.clone();
+                    let mut shim = entry.clone();
+                    if let Some(value) = tag["data"].as_object() {
+                        for (data_key, data_value) in value {
+                            shim[data_key.clone()] = data_value.clone();
+                            if data_key == "TAG_NAME" || data_key == "TAG_MODULE" {
+                                shim["message"] = Value::String(format!(
+                                    "{} | Shim {data_key}: {}",
+                                    temp["evidence"].as_str()?,
+                                    data_value.as_str()?,
+                                ));
+                            }
+                        }
+                    }
+
+                    if let Some(value) = tag["list_data"].as_array() {
+                        for list_entry in value {
+                            if let Some(list_value) = list_entry.as_object() {
+                                for (list_key, list_data) in list_value {
+                                    if let Some(existing_data) =
+                                        shim.get_mut(format!("list_{list_key}"))
+                                    {
+                                        if existing_data.is_string() {
+                                            shim[format!("list_{list_key}")] = Value::Array(vec![
+                                                existing_data.clone(),
+                                                list_data.clone(),
+                                            ]);
+                                            continue;
+                                        }
+                                        let _ = existing_data.is_array().then(|| {
+                                            existing_data
+                                                .as_array_mut()
+                                                .unwrap_or(&mut Vec::new())
+                                                .push(list_data.clone());
+                                        });
+
+                                        continue;
+                                    }
+                                    shim[format!("list_{list_key}")] = list_data.clone();
+                                }
+                            }
+                        }
+                    }
+                    entries.push(shim.clone());
                 }
-                continue;
             }
-            entry[key] = value.clone();
         }
-        entries.push(entry.clone());
     }
 
     check_meta(data, &mut entries)
@@ -561,7 +553,7 @@ pub(crate) fn shortcuts(data: &mut Value) -> Option<()> {
         };
         entry["artifact"] = Value::String(String::from("Shortcut"));
         entry["data_type"] = Value::String(String::from("windows:shortcut:lnk"));
-        entry["message"] = entry["source_path"].clone();
+        entry["message"] = entry["evidence"].clone();
 
         let temp = entry.clone();
         let times = extract_shortcut_times(&temp)?;
@@ -626,45 +618,21 @@ pub(crate) fn srum(data: &mut Value) -> Option<()> {
 }
 
 pub(crate) fn tasks(data: &mut Value) -> Option<()> {
-    let mut entries = Vec::new();
-
     for values in data.as_array_mut()? {
-        let mut temp = Value::Null;
-        let bits = if let Some(value) = values.get_mut("data").unwrap_or(&mut temp).get_mut("tasks")
-        {
+        let task = if let Some(value) = values.get_mut("data") {
             value
         } else {
-            values.get_mut("tasks")?
+            values
         };
-        // First get full modern tasks
-        for entry in bits.as_array_mut()? {
-            entry["message"] = entry["path"].as_str().into();
-            entry["artifact"] = Value::String(String::from("Schedule Task"));
-            entry["data_type"] = Value::String(String::from("windows:tasks:xml:entry"));
-            entry["datetime"] = Value::String(String::from("1970-01-01T00:00:00.000Z"));
-            entry["timestamp_desc"] = Value::String(String::from("N/A"));
-            entries.push(entry.clone());
-        }
 
-        // Now get legacy jobs
-        let mut jobs =
-            if let Some(value) = values.get_mut("data").unwrap_or(&mut temp).get_mut("jobs") {
-                value.clone()
-            } else {
-                values.get_mut("jobs")?.clone()
-            };
-        // Get legacy Jobs
-        for entry in jobs.as_array_mut()? {
-            entry["message"] = entry["path"].as_str().into();
-            entry["artifact"] = Value::String(String::from("Schedule Task"));
-            entry["data_type"] = Value::String(String::from("windows:tasks:jobs:entry"));
-            entry["datetime"] = Value::String(String::from("1970-01-01T00:00:00.000Z"));
-            entry["timestamp_desc"] = Value::String(String::from("N/A"));
-            entries.push(entry.clone());
-        }
+        task["message"] = task["evidence"].as_str().into();
+        task["artifact"] = Value::String(String::from("Schedule Task"));
+        task["data_type"] = Value::String(String::from("windows:tasks:xml:entry"));
+        task["datetime"] = task["created"].as_str().into();
+        task["timestamp_desc"] = Value::String(String::from("Task Created"));
     }
 
-    check_meta(data, &mut entries)
+    Some(())
 }
 
 pub(crate) fn userassist(data: &mut Value) -> Option<()> {
@@ -694,10 +662,10 @@ pub(crate) fn usnjrnl(data: &mut Value) -> Option<()> {
 
         entry["message"] = entry["full_path"].as_str()?.into();
         entry["datetime"] = entry["update_time"].as_str()?.into();
-        entry["artifact"] = Value::String(String::from("Userassist"));
+        entry["artifact"] = Value::String(String::from("UsnJrnl"));
         entry["data_type"] = Value::String(String::from("windows:ntfs:usnjrnl:entry"));
         entry["timestamp_desc"] =
-            Value::String(format!("UsnJrnl {}", entry["update_reason"].as_str()?));
+            Value::String(format!("UsnJrnl {:?}", entry["update_reason"].as_array()?));
     }
     Some(())
 }
@@ -792,17 +760,12 @@ mod tests {
     #[test]
     fn test_bits() {
         let mut test = json!([{
-            "bits": [{
-                "modified": "2024-01-01T00:00:00.000Z",
-                "created": "2024-01-01T00:00:00.000Z",
-                "expiration": "2024-01-01T00:00:00.000Z",
-                "completed": "2024-01-01T00:00:00.000Z",
-                "target_path":"C:\\Windows\\cmd.exe",
-                "job_name": "test"
-            }],
-            "carved_files": [],
-            "carved_jobs": [],
-
+            "modified": "2024-01-01T00:00:00.000Z",
+            "created": "2024-01-01T00:00:00.000Z",
+            "expiration": "2024-01-01T00:00:00.000Z",
+            "completed": "2024-01-01T00:00:00.000Z",
+            "target_path":"C:\\Windows\\cmd.exe",
+            "job_name": "test"
         }]);
 
         bits(&mut test).unwrap();
@@ -888,6 +851,24 @@ mod tests {
     }
 
     #[test]
+    fn test_raw_files_empty() {
+        let mut test = json!([{
+            "created": "",
+            "full_path": "/usr/bin/ls",
+            "modified": "",
+            "changed": "",
+            "accessed": "",
+            "filename_changed": "2024-01-01T03:00:00.001Z",
+            "filename_created": "2024-01-01T03:00:00.002Z",
+            "filename_modified": "2024-01-01T03:00:00.030Z",
+            "filename_accessed": "2024-01-01T03:00:00.040Z",
+        }]);
+
+        raw_files(&mut test).unwrap();
+        assert_eq!(test.as_array().unwrap().len(), 4);
+    }
+
+    #[test]
     fn test_mft() {
         let mut test = json!([{
             "created": "2024-01-01T00:00:00.000Z",
@@ -925,7 +906,7 @@ mod tests {
     fn test_prefetch() {
         let mut test = json!([{
             "last_run_time": "2024-01-01T00:00:00.000Z",
-            "path": "test.pf",
+            "evidence": "test.pf",
             "all_run_times": [],
         }]);
 
