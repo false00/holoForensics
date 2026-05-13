@@ -676,6 +676,7 @@ fn initialize_app(
     app.set_app_version(env!("CARGO_PKG_VERSION").into());
     app.set_collection_archive_path(display_path(&collection_output_dir).into());
     refresh_collection_output_filename(app);
+    apply_screenshot_safe_collection_defaults(app, options.screenshot_state);
     app.set_collection_usn_mode(settings.collection_usn_mode.clamp(0, 2));
     app.set_collection_usn_chunk_index(settings.collection_usn_chunk_index.clamp(0, 4));
     app.set_collection_sparse(settings.collection_sparse);
@@ -755,6 +756,25 @@ fn apply_launch_overlays(
             seed_collection_progress_overlay(app, state);
         }
     }
+}
+
+fn apply_screenshot_safe_collection_defaults(
+    app: &AppWindow,
+    screenshot_state: Option<DesktopScreenshotState>,
+) {
+    if screenshot_state.is_none() {
+        return;
+    }
+
+    app.set_collection_archive_path(r"C:\Evidence\Packages".into());
+    app.set_collection_output_filename(
+        format!(
+            "holo-forensics-{}-{}-example-host-example-user.zip",
+            collection_profile_slug(app.get_collection_profile()),
+            sanitize_archive_component(env!("CARGO_PKG_VERSION"), "unknown-version")
+        )
+        .into(),
+    );
 }
 
 fn seed_collection_progress_overlay(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
