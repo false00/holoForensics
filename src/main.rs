@@ -5,7 +5,7 @@ use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use holo_forensics::app::{self, ParseCli, ParseRunOptions};
 use holo_forensics::collections::windows::{
     browser_artifacts, evtx, indx, jump_lists, lnk, logfile, mft, powershell_activity, prefetch,
-    recycle_bin, registry, scheduled_tasks, srum, usn_journal,
+    recycle_bin, registry, scheduled_tasks, srum, usn_journal, wmi_repository,
 };
 use holo_forensics::desktop::{DesktopLaunchOptions, DesktopScreenshotState, DesktopThemeOverride};
 
@@ -93,6 +93,9 @@ enum Command {
     #[command(name = "collect-scheduled-tasks")]
     CollectScheduledTasks(scheduled_tasks::ScheduledTasksCollectCli),
 
+    #[command(name = "collect-wmi-repository")]
+    CollectWmiRepository(wmi_repository::WmiRepositoryCollectCli),
+
     #[command(name = "collect-powershell-activity")]
     CollectPowerShellActivity(powershell_activity::PowerShellActivityCollectCli),
 
@@ -149,6 +152,7 @@ fn main() {
         Some(Command::CollectSrum(args)) => srum::run(&args),
         Some(Command::CollectPrefetch(args)) => prefetch::run(&args),
         Some(Command::CollectScheduledTasks(args)) => scheduled_tasks::run(&args),
+        Some(Command::CollectWmiRepository(args)) => wmi_repository::run(&args),
         Some(Command::CollectPowerShellActivity(args)) => powershell_activity::run(&args),
         Some(Command::CollectBrowserArtifacts(args)) => browser_artifacts::run(&args),
         Some(Command::CollectJumpLists(args)) => jump_lists::run(&args),
@@ -472,6 +476,28 @@ mod tests {
                 assert!(args.manifest.is_none());
             }
             _ => panic!("collect-scheduled-tasks was not parsed"),
+        }
+    }
+
+    #[test]
+    fn parses_collect_wmi_repository_subcommand() {
+        let cli = Cli::try_parse_from([
+            "holo-forensics",
+            "collect-wmi-repository",
+            "--volume",
+            "C:",
+            "--out-dir",
+            r"C:\temp\wmi-repository",
+        ])
+        .expect("collect-wmi-repository should parse");
+
+        match cli.command {
+            Some(Command::CollectWmiRepository(args)) => {
+                assert_eq!(args.volume, "C:");
+                assert_eq!(args.out_dir, PathBuf::from(r"C:\temp\wmi-repository"));
+                assert!(args.manifest.is_none());
+            }
+            _ => panic!("collect-wmi-repository was not parsed"),
         }
     }
 

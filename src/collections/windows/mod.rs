@@ -13,3 +13,4 @@ pub mod scheduled_tasks;
 pub mod srum;
 pub mod usn_journal;
 pub mod vss;
+pub mod wmi_repository;

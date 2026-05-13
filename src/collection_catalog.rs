@@ -55,6 +55,12 @@ pub fn enabled_collection_definitions() -> Vec<CollectionDefinition> {
             Some("src/collections/windows/scheduled_tasks.rs"),
         ),
         collection(
+            "windows_wmi_repository_collection",
+            "windows",
+            "Windows WMI Repository",
+            Some("src/collections/windows/wmi_repository.rs"),
+        ),
+        collection(
             "windows_jump_lists_collection",
             "windows",
             "Windows Jump Lists",
@@ -272,6 +278,16 @@ mod tests {
             definition.name == "windows_scheduled_tasks_collection"
                 && definition.implementation_path
                     == Some("src/collections/windows/scheduled_tasks.rs")
+        }));
+    }
+
+    #[test]
+    fn enabled_collections_include_wmi_repository_definition() {
+        let collections = enabled_collection_definitions();
+        assert!(collections.iter().any(|definition| {
+            definition.name == "windows_wmi_repository_collection"
+                && definition.implementation_path
+                    == Some("src/collections/windows/wmi_repository.rs")
         }));
     }
 

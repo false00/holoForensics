@@ -20,6 +20,7 @@ pub const WINDOWS_JUMP_LISTS_COLLECTOR: &str = "windows_jump_lists";
 pub const WINDOWS_LNK_COLLECTOR: &str = "windows_lnk";
 pub const WINDOWS_RECYCLE_BIN_COLLECTOR: &str = "windows_recycle_bin";
 pub const WINDOWS_SCHEDULED_TASKS_COLLECTOR: &str = "windows_scheduled_tasks";
+pub const WINDOWS_WMI_REPOSITORY_COLLECTOR: &str = "windows_wmi_repository";
 
 pub fn collector_metadata_archive_dir(volume: &str, collector: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(METADATA_ROOT)
@@ -68,7 +69,8 @@ mod tests {
         WINDOWS_JUMP_LISTS_COLLECTOR, WINDOWS_LNK_COLLECTOR, WINDOWS_LOGFILE_COLLECTOR,
         WINDOWS_MFT_COLLECTOR, WINDOWS_POWERSHELL_ACTIVITY_COLLECTOR, WINDOWS_PREFETCH_COLLECTOR,
         WINDOWS_RECYCLE_BIN_COLLECTOR, WINDOWS_REGISTRY_COLLECTOR,
-        WINDOWS_SCHEDULED_TASKS_COLLECTOR, WINDOWS_SRUM_COLLECTOR, collector_log_archive_path,
+        WINDOWS_SCHEDULED_TASKS_COLLECTOR, WINDOWS_SRUM_COLLECTOR,
+        WINDOWS_WMI_REPOSITORY_COLLECTOR, collector_log_archive_path,
         collector_manifest_archive_path,
     };
 
@@ -184,6 +186,14 @@ mod tests {
                 .join("collectors")
                 .join("C")
                 .join("windows_scheduled_tasks")
+                .join("manifest.json")
+        );
+        assert_eq!(
+            collector_manifest_archive_path("c:", WINDOWS_WMI_REPOSITORY_COLLECTOR)?,
+            PathBuf::from("$metadata")
+                .join("collectors")
+                .join("C")
+                .join("windows_wmi_repository")
                 .join("manifest.json")
         );
         Ok(())

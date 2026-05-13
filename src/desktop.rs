@@ -69,6 +69,7 @@ const TRIAGE_COLLECTION_TITLES: &[&str] = &[
     "Prefetch",
     "$UsnJrnl",
     "Scheduled Tasks",
+    "WMI Repository",
     "PowerShell Activity",
     "Browser Artifacts",
 ];
@@ -496,6 +497,7 @@ struct CollectionExecutionRequest {
     collect_srum: bool,
     collect_prefetch: bool,
     collect_scheduled_tasks: bool,
+    collect_wmi_repository: bool,
     collect_powershell_activity: bool,
     collect_browser_artifacts: bool,
     collect_jump_lists: bool,
@@ -1375,6 +1377,11 @@ fn start_collection_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Re
                             elevate: request.elevate,
                         },
                     ),
+                    wmi_repository: request.collect_wmi_repository.then_some(
+                        app::WmiRepositoryCollectionOptions {
+                            elevate: request.elevate,
+                        },
+                    ),
                     powershell_activity: request.collect_powershell_activity.then_some(
                         app::PowerShellActivityCollectionOptions {
                             elevate: request.elevate,
@@ -1888,6 +1895,7 @@ fn collect_collection_request(
         collect_srum,
         collect_prefetch,
         collect_scheduled_tasks,
+        collect_wmi_repository,
         collect_powershell_activity,
         collect_browser_artifacts,
         collect_jump_lists,
@@ -1919,6 +1927,9 @@ fn collect_collection_request(
                 .any(|title| title == "Scheduled Tasks"),
             selected_live_titles
                 .iter()
+                .any(|title| title == "WMI Repository"),
+            selected_live_titles
+                .iter()
                 .any(|title| title == "PowerShell Activity"),
             selected_live_titles
                 .iter()
@@ -1945,6 +1956,7 @@ fn collect_collection_request(
         && !collect_srum
         && !collect_prefetch
         && !collect_scheduled_tasks
+        && !collect_wmi_repository
         && !collect_powershell_activity
         && !collect_browser_artifacts
         && !collect_jump_lists
@@ -1993,6 +2005,7 @@ fn collect_collection_request(
         collect_srum,
         collect_prefetch,
         collect_scheduled_tasks,
+        collect_wmi_repository,
         collect_powershell_activity,
         collect_browser_artifacts,
         collect_jump_lists,
@@ -2640,6 +2653,32 @@ fn expected_collection_artifacts(title: &str) -> Vec<(&'static str, &'static str
             (
                 "$metadata/collectors/C/windows_scheduled_tasks/collection.log",
                 "Scheduled Tasks collection log",
+            ),
+        ],
+        "WMI Repository" => vec![
+            (
+                "C/Windows/System32/wbem/Repository*/**/*",
+                "Raw WMI repository trees preserved from the VSS snapshot, including nested FS content and numbered repository copies",
+            ),
+            (
+                "C/Windows/System32/wbem/AutoRecover/**/*",
+                "AutoRecover MOF material preserved for repository reconstruction and persistence review",
+            ),
+            (
+                "C/Windows/System32/wbem/*.mof",
+                "Top-level WBEM MOF files preserved without compilation or parsing",
+            ),
+            (
+                "C/Windows/System32/wbem/*.mfl",
+                "Top-level WBEM MFL localization files preserved alongside MOFs",
+            ),
+            (
+                "$metadata/collectors/C/windows_wmi_repository/manifest.json",
+                "WMI Repository collection manifest",
+            ),
+            (
+                "$metadata/collectors/C/windows_wmi_repository/collection.log",
+                "WMI Repository collection log",
             ),
         ],
         "PowerShell Activity" => vec![
@@ -4525,6 +4564,9 @@ fn selected_runtime_collectors_label(request: &CollectionExecutionRequest) -> St
     if request.collect_scheduled_tasks {
         labels.push("scheduled-tasks");
     }
+    if request.collect_wmi_repository {
+        labels.push("wmi-repository");
+    }
     if request.collect_powershell_activity {
         labels.push("powershell-activity");
     }
@@ -4672,6 +4714,15 @@ fn build_collection_catalog_records() -> Vec<CollectionCatalogRecord> {
             "Scheduled tasks are a common persistence and execution mechanism with both legacy job files and modern XML-backed task definitions.",
             "Targets: C:\\Windows\\Tasks, C:\\Windows\\SchedLgU.txt, and C:\\Windows\\System32\\Tasks",
             "Included in Create Package today. The live Rust collector uses a VSS snapshot, copies legacy and modern task roots without parsing or event-log duplication, hashes source and destination bytes with SHA-256, and records directory and file metadata in the centralized manifest.",
+            true,
+        ),
+        CollectionCatalogRecord::new(
+            "WMI Repository",
+            "Persistence + subscriptions",
+            "Available",
+            "Permanent WMI event subscriptions and related MOF material can preserve event filters, consumers, bindings, and recovery context even when live WMI queries are incomplete or untrusted.",
+            "Targets: C:\\Windows\\System32\\wbem\\Repository*\\**, C:\\Windows\\System32\\wbem\\AutoRecover\\**, and top-level C:\\Windows\\System32\\wbem\\*.mof / *.mfl from a VSS snapshot",
+            "Included in Create Package today. The live Rust collector uses a VSS snapshot, copies Repository* trees recursively including nested FS content, preserves AutoRecover plus top-level MOF and MFL files, hashes source and destination bytes with SHA-256, records directory metadata, and skips registry or EVTX duplication already covered by other collectors.",
             true,
         ),
         CollectionCatalogRecord::new(
@@ -5221,6 +5272,27 @@ mod tests {
     }
 
     #[test]
+    fn wmi_repository_collection_catalog_record_is_live_and_describes_snapshot_targets() {
+        let records = build_collection_catalog_records();
+
+        let wmi_repository = records
+            .iter()
+            .find(|record| record.title == "WMI Repository")
+            .expect("WMI repository record should exist");
+
+        assert!(wmi_repository.live);
+        assert_eq!(wmi_repository.status, "Available");
+        assert!(wmi_repository.targets.contains("Repository*"));
+        assert!(wmi_repository.targets.contains("AutoRecover"));
+        assert!(wmi_repository.note.contains("nested FS content"));
+        assert!(
+            wmi_repository
+                .note
+                .contains("skips registry or EVTX duplication")
+        );
+    }
+
+    #[test]
     fn powershell_activity_collection_catalog_record_is_live_and_describes_snapshot_targets() {
         let records = build_collection_catalog_records();
 
@@ -5342,6 +5414,38 @@ mod tests {
             details
                 .iter()
                 .any(|item| item.name.contains("windows_scheduled_tasks/manifest.json"))
+        );
+    }
+
+    #[test]
+    fn wmi_repository_collection_activity_details_show_expected_repository_artifacts() {
+        let record = super::CollectionActivityRecord {
+            title: "WMI Repository".to_string(),
+            category: "Persistence + subscriptions".to_string(),
+            detail: "WMI repository collector is ready.".to_string(),
+            status: "Ready".to_string(),
+            tone: CollectionActivityTone::Ready,
+            active: false,
+            show_progress: false,
+            progress_value: 0.0,
+            progress_text: String::new(),
+            package_pending: false,
+        };
+
+        let details = build_collection_activity_details(Some(&record), None);
+
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("Repository*/**/*"))
+        );
+        assert!(details.iter().any(|item| item.name.contains("AutoRecover")));
+        assert!(details.iter().any(|item| item.name.contains("*.mof")));
+        assert!(details.iter().any(|item| item.name.contains("*.mfl")));
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("windows_wmi_repository/manifest.json"))
         );
     }
 
