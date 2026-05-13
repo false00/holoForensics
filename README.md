@@ -68,41 +68,43 @@ The app also includes Parse Mode for existing evidence archives, settings for th
 
 Holo Forensics has two separate jobs: **Create Package** collects Windows artifacts into a preserved zip layout, and **Parse Mode** turns supported artifacts into JSONL. Some collected artifacts are preserved for later analysis even if Holo does not parse them yet.
 
-Parse Mode also recognizes parser-only raw-input contracts for Windows BITS, Windows Search, Outlook stores, and Shim databases when those files already exist inside the evidence package.
+Parse Mode also recognizes parser-only raw-input contracts for Windows BITS, Windows Search, Outlook stores, Shim databases, restore-point logs, and Windows Timeline when those files already exist inside the evidence package.
+
+In the parity column below, `✅` means Create Package and Parse Mode both cover that Windows surface today. `🕒` means one side exists today, but the matching collector or parser is still missing.
 
 ### Collects Today
 
-| Status | Surface | What is collected |
+| Parity | Surface | What is collected |
 | :---: | --- | --- |
 | ✅ | Windows Event Logs | `C:\Windows\System32\winevt\Logs\*.evtx`, including archived EVTX logs |
 | ✅ | Registry Hives | System hives, user hives, service-profile hives, AmCache, BCD, and registry transaction logs |
 | ✅ | Prefetch | `C:\Windows\Prefetch\*.pf`, `Layout.ini`, and `Ag*.db` from a VSS snapshot, with timestamps, file attributes, and SHA-256 metadata |
 | ✅ | Scheduled Tasks | `C:\Windows\Tasks\**`, `C:\Windows\SchedLgU.txt`, and `C:\Windows\System32\Tasks\**` from a VSS snapshot, preserved raw with directory metadata and SHA-256 verification |
 | ✅ | WMI Repository | `C:\Windows\System32\wbem\Repository*\**`, `C:\Windows\System32\wbem\AutoRecover\**`, and top-level `C:\Windows\System32\wbem\*.mof` / `*.mfl` from a VSS snapshot, preserved raw with directory metadata, SHA-256 verification, and no registry or EVTX duplication |
-| ✅ | PowerShell Activity | PSReadLine history, user profile scripts, likely transcript files, and selected script/config files from user PowerShell roots in a VSS snapshot, with skipped-file logging and no registry or EVTX duplication |
+| 🕒 | PowerShell Activity | PSReadLine history, user profile scripts, likely transcript files, and selected script/config files from user PowerShell roots in a VSS snapshot, with skipped-file logging and no registry or EVTX duplication |
 | ✅ | Browser Artifacts | Chrome, Edge, Firefox, legacy Edge/WebCache, DPAPI support material, and supporting hives |
 | ✅ | Jump Lists | Per-user AutomaticDestinations and CustomDestinations plus `jump_lists_manifest.jsonl` |
 | ✅ | LNK Files | Recent, Office Recent, Desktop, and Start Menu `.lnk` files from a VSS snapshot, preserved raw with `lnk_manifest.jsonl` and no shortcut-target resolution |
 | ✅ | Recycle Bin | Raw VSS snapshot copy of `C:\$Recycle.Bin` and legacy `C:\Recycler`, including root-level files, SID folders, `$I`, `$R`, `INFO2`, and `recycle_bin_manifest.jsonl` |
 | ✅ | SRUM | `C:\Windows\System32\sru\*` plus SOFTWARE and SYSTEM hives |
 | ✅ | `$MFT` | NTFS `$MFT` through VSS raw-NTFS extraction |
-| ✅ | `$LogFile` | NTFS `$LogFile` through VSS raw-NTFS extraction |
-| ✅ | INDX Records | Raw NTFS `$I30` index attributes from directory records |
+| 🕒 | `$LogFile` | NTFS `$LogFile` through VSS raw-NTFS extraction |
+| 🕒 | INDX Records | Raw NTFS `$I30` index attributes from directory records |
 | ✅ | `$UsnJrnl` | `$Extend\$UsnJrnl:$J` with sidecar or centralized collector metadata |
 
 Create Package preserves original Windows paths where applicable, hashes collected bytes with SHA-256, and writes collector metadata under `$metadata/collectors/<volume>/<collector>/`. Recycle Bin collection preserves the raw modern and legacy on-disk structure; Parse Mode covers modern `$I*` metadata through `windows_recycle_bin` and XP `INFO2` through `windows_recycle_bin_info2`.
 
 ### Parses Today
 
-| Status | Parser family | Artifact support | Collection/input contract |
+| Parity | Parser family | Artifact support | Collection/input contract |
 | :---: | --- | --- | --- |
 | ✅ | `windows_browser_history` | Chrome, Edge, and Firefox local browser history databases | `windows_browser_artifacts_collection` |
 | ✅ | `windows_event_logs` | Active and archived `.evtx` event logs | `windows_evtx_collection` |
 | ✅ | `windows_prefetch` | Windows Prefetch `.pf` files | `windows_prefetch_collection` |
-| ✅ | `windows_bits` | BITS job databases `qmgr.db`, `qmgr0.dat`, and `qmgr1.dat` | Parser-only `windows_bits_collection` |
-| ✅ | `windows_search` | Windows Search databases `Windows.edb` and `Windows.db` | Parser-only `windows_search_collection` |
-| ✅ | `windows_outlook` | Outlook `.ost` and `.pst` stores | Parser-only `windows_outlook_collection` |
-| ✅ | `windows_shimdb` | Application compatibility `.sdb` databases | Parser-only `windows_shimdb_collection` |
+| 🕒 | `windows_bits` | BITS job databases `qmgr.db`, `qmgr0.dat`, and `qmgr1.dat` | Parser-only `windows_bits_collection` |
+| 🕒 | `windows_search` | Windows Search databases `Windows.edb` and `Windows.db` | Parser-only `windows_search_collection` |
+| 🕒 | `windows_outlook` | Outlook `.ost` and `.pst` stores | Parser-only `windows_outlook_collection` |
+| 🕒 | `windows_shimdb` | Application compatibility `.sdb` databases | Parser-only `windows_shimdb_collection` |
 | ✅ | `windows_userassist` | UserAssist registry data from `NTUSER.DAT` | `windows_registry_collection` |
 | ✅ | `windows_shimcache` | ShimCache/AppCompatCache data from `SYSTEM` | `windows_registry_collection` |
 | ✅ | `windows_shellbags` | Shellbags from `NTUSER.DAT` and `USRCLASS.DAT` | `windows_registry_collection` |
@@ -118,11 +120,28 @@ Create Package preserves original Windows paths where applicable, hashes collect
 | ✅ | `windows_mft` | Raw NTFS `$MFT` evidence | `windows_mft_collection` |
 | ✅ | `windows_usn_journal` | Raw NTFS `$Extend\$UsnJrnl:$J` streams, including sidecar-aware sparse-range parsing for USN record versions 2 and 3 | `windows_usn_journal_collection` |
 | ✅ | `windows_registry` | Offline Windows Registry hives including `NTUSER.DAT`, `UsrClass.dat`, `Amcache.hve`, `SYSTEM`, `SOFTWARE`, `SAM`, `SECURITY`, `DEFAULT`, `COMPONENTS`, `settings.dat`, and `drvindex.dat` | `windows_registry_collection` |
-| ✅ | `windows_restore_point_log` | Windows restore-point `rp.log` | `windows_restore_point_log_collection` |
+| 🕒 | `windows_restore_point_log` | Windows restore-point `rp.log` | Parser-only `windows_restore_point_log_collection` |
 | ✅ | `windows_recycle_bin_info2` | Windows XP recycle-bin `INFO2` | `windows_recycle_bin_info2_collection` |
-| ✅ | `windows_timeline` | Windows Timeline `ActivitiesCache.db` | `windows_timeline_collection` |
+| 🕒 | `windows_timeline` | Windows Timeline `ActivitiesCache.db` | Parser-only `windows_timeline_collection` |
 
-Most of the additional Windows parser families run through the shared adapter in `src/parsers/windows/artemis.rs` and a vendored Artemis v0.16.0 workspace under `third_party/artemis`. That local fork preserves the existing Holo Forensics plan, manifest, and JSONL output contracts while keeping the Windows offline-file fixes in-repo. Create Package does not yet collect parser-only inputs for BITS, Windows Search, Outlook stores, or Shim databases.
+### Parity Gaps To Close
+
+Collector exists, matching parser is still missing:
+
+- `windows_powershell_activity_collection`
+- `windows_logfile_collection`
+- `windows_indx_collection`
+
+Parser exists, matching live collector is still missing:
+
+- `windows_bits` -> `windows_bits_collection`
+- `windows_search` -> `windows_search_collection`
+- `windows_outlook` -> `windows_outlook_collection`
+- `windows_shimdb` -> `windows_shimdb_collection`
+- `windows_restore_point_log` -> `windows_restore_point_log_collection`
+- `windows_timeline` -> `windows_timeline_collection`
+
+Most of the additional Windows parser families run through the shared adapter in `src/parsers/windows/artemis.rs` and a vendored Artemis v0.16.0 workspace under `third_party/artemis`. That local fork preserves the existing Holo Forensics plan, manifest, and JSONL output contracts while keeping the Windows offline-file fixes in-repo. Create Package does not yet collect parser-only inputs for BITS, Windows Search, Outlook stores, Shim databases, restore-point logs, or Windows Timeline, and Parse Mode does not yet have matching parser families for PowerShell Activity, `$LogFile`, or INDX collector output.
 
 ## Getting Started
 

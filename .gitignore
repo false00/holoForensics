@@ -9,6 +9,8 @@ bin/
 .cache/
 target/
 output/
+!third_party/artemis/forensics/src/output/
+!third_party/artemis/forensics/src/output/**
 *.log
 
 # Intake collections and scratch data

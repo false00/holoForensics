@@ -6,4 +6,8 @@ ignore = [
     # Transitive through notatin and Slint/image. Keep reviewing on dependency
     # updates; currently no direct compatible replacement is available here.
     "RUSTSEC-2024-0436",
+    # Transitive through Artemis' evtx dependency. Keep reviewing on Artemis and
+    # evtx updates; this is currently an unmaintained warning rather than a
+    # disclosed vulnerability in a directly controlled dependency.
+    "RUSTSEC-2021-0153",
 ]

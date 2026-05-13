@@ -15,7 +15,11 @@ $skipExtensions = @(
     ".rlib", ".ttf", ".wasm", ".webp", ".zip"
 )
 
-$matches = New-Object System.Collections.Generic.List[string]
+$skipPathPatterns = @(
+    '^third_party/.+/tests/test_data/'
+)
+
+$findings = New-Object System.Collections.Generic.List[string]
 $files = git ls-files -z
 if ($LASTEXITCODE -ne 0) {
     throw "git ls-files failed"
@@ -23,6 +27,10 @@ if ($LASTEXITCODE -ne 0) {
 
 foreach ($path in ($files -split "`0")) {
     if ([string]::IsNullOrWhiteSpace($path)) {
+        continue
+    }
+
+    if ($skipPathPatterns | Where-Object { $path -match $_ }) {
         continue
     }
 
@@ -52,14 +60,14 @@ foreach ($path in ($files -split "`0")) {
     for ($lineNumber = 0; $lineNumber -lt $lines.Count; $lineNumber++) {
         foreach ($pattern in $patterns) {
             if ([System.Text.RegularExpressions.Regex]::IsMatch($lines[$lineNumber], $pattern.Regex)) {
-                $matches.Add(("{0}:{1}: {2}" -f $path, ($lineNumber + 1), $pattern.Name))
+                $findings.Add(("{0}:{1}: {2}" -f $path, ($lineNumber + 1), $pattern.Name))
             }
         }
     }
 }
 
-if ($matches.Count -gt 0) {
-    Write-Error ("Potential secrets found:`n{0}" -f ($matches -join "`n"))
+if ($findings.Count -gt 0) {
+    Write-Error ("Potential secrets found:`n{0}" -f ($findings -join "`n"))
     exit 1
 }
 
