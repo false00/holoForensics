@@ -4,6 +4,8 @@
 
 Native Rust live collector for Windows Event Log files. The first implementation performs a physical `.evtx` acquisition from a VSS snapshot so the copied logs represent a stable point-in-time view instead of the live, locked log files.
 
+This contract now feeds the `windows_event_logs` parser family through the shared Artemis adapter in `src/parsers/windows/artemis.rs`.
+
 ## Source
 
 - `src/collections/windows/evtx.rs`

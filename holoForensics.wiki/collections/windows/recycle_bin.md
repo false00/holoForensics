@@ -4,7 +4,7 @@
 
 Native Rust live collector for Windows Recycle Bin acquisition under the existing `windows_recycle_bin_info2_collection` contract. The collector uses a VSS snapshot, copies both modern `$Recycle.Bin` and legacy `Recycler` roots exactly as they exist on disk, preserves root-level files and nested recycled-directory content, hashes each copied file, and writes a JSONL artifact inventory for downstream review.
 
-The built-in parser family bound to this collection still targets XP or Server 2003 `INFO2` only. Modern `$I` and `$R` files are preserved raw for later parsing or external-tool analysis.
+This contract now feeds `windows_recycle_bin` for modern `$I*` metadata and `windows_recycle_bin_info2` for XP or Server 2003 `INFO2`. Modern `$R` payload files remain preserved raw for later parsing or external-tool analysis.
 
 ## Source
 
@@ -12,7 +12,7 @@ The built-in parser family bound to this collection still targets XP or Server 2
 - Shared metadata path helper: `src/collection_metadata.rs`
 - Shared VSS lifecycle helper: `src/collections/windows/vss.rs`
 - Shared archive workflow: `src/app.rs`
-- Bound parser page: `holoForensics.wiki/parsers/windows/recycle_bin_info2.md`
+- Bound parser pages: `holoForensics.wiki/parsers/windows/recycle_bin.md` and `holoForensics.wiki/parsers/windows/recycle_bin_info2.md`
 
 ## Mode
 

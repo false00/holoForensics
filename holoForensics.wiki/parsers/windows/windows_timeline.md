@@ -27,3 +27,4 @@ Native Rust parser for Windows Timeline activity databases.
 - Update this page if the SQL queries or emitted activity fields change.
 - Update this page if artifact discovery rules change.
 - Update this page if validation coverage changes.
+

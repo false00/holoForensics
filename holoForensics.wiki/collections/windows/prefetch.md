@@ -4,6 +4,8 @@
 
 Native Rust live collector for Windows Prefetch acquisition. The collector uses a VSS snapshot, copies targeted Prefetch artifacts from the snapshot rather than the live path, streams bytes while hashing, and records source timestamps, file attributes, and shadow-copy metadata in the centralized manifest.
 
+This contract now feeds the `windows_prefetch` parser family through the shared Artemis adapter in `src/parsers/windows/artemis.rs`.
+
 ## Source
 
 - `src/collections/windows/prefetch.rs`

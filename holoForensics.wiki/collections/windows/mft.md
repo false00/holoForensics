@@ -4,6 +4,8 @@
 
 Native Rust live collector for the NTFS Master File Table. The default mode creates a VSS snapshot, opens the snapshot device as a raw NTFS volume, locates `$MFT` record 0, streams the unnamed `$DATA` attribute to evidence output, hashes it, and records collection metadata.
 
+This contract now feeds the `windows_mft` parser family through the shared Artemis adapter in `src/parsers/windows/artemis.rs`.
+
 ## Source
 
 - `src/collections/windows/mft.rs`

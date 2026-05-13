@@ -85,6 +85,7 @@ cargo run -- ui
 | Windows Event Logs | Available | VSS snapshot copy of active and archived `.evtx` logs |
 | Prefetch | Available | VSS snapshot copy of `.pf`, `Layout.ini`, and `Ag*.db` with timestamps, file attributes, and SHA-256 metadata |
 | Scheduled Tasks | Available | VSS snapshot raw copy of legacy `Windows\Tasks`, `SchedLgU.txt`, and modern `Windows\System32\Tasks` with directory metadata and SHA-256 verification |
+| WMI Repository | Available | VSS snapshot raw copy of `Repository*`, `AutoRecover`, and top-level `.mof` / `.mfl` WBEM content with directory metadata and SHA-256 verification |
 | PowerShell Activity | Available | VSS snapshot copy of PSReadLine history, PowerShell profile scripts, likely transcripts, and selected user PowerShell support files with skipped-file logging |
 | `$MFT` | Available | VSS raw NTFS extraction with SHA-256 metadata |
 | `$LogFile` | Available | VSS raw NTFS extraction with SHA-256 metadata |
@@ -94,9 +95,9 @@ cargo run -- ui
 | Jump Lists | Available | VSS snapshot copy of per-user AutomaticDestinations and CustomDestinations plus `jump_lists_manifest.jsonl` |
 | LNK Files | Available | VSS snapshot copy of Recent, Office Recent, Desktop, and Start Menu `.lnk` files plus `lnk_manifest.jsonl`, without shortcut-target resolution |
 | Recycle Bin | Available | VSS snapshot raw copy of `$Recycle.Bin` and `Recycler`, including `$I`, `$R`, `INFO2`, root-level files, and `recycle_bin_manifest.jsonl` |
-
-The live Recycle Bin collector preserves both modern and legacy raw structures for later analysis; the built-in parser family still targets XP `INFO2` when that artifact is present.
 | `$UsnJrnl` | Available | Direct stream, VSS stream, and VSS raw NTFS acquisition with active-window and sparse modes |
+
+The live Recycle Bin collector preserves both modern and legacy raw structures. Parse Mode now covers modern `$I*` metadata through `windows_recycle_bin` and legacy XP `INFO2` through `windows_recycle_bin_info2`.
 
 When multiple VSS-backed collectors run for the same volume, the archive workflow uses a shared point-in-time snapshot so related artifacts line up cleanly in time.
 
@@ -107,6 +108,25 @@ The desktop startup path also reconciles previously tracked shadow copies and pr
 | Parser family | Platform | Evidence |
 | --- | --- | --- |
 | `windows_browser_history` | Windows | Chrome, Edge, and Firefox history |
+| `windows_event_logs` | Windows | Active and archived `.evtx` event logs |
+| `windows_prefetch` | Windows | Windows Prefetch `.pf` files |
+| `windows_bits` | Windows | BITS databases `qmgr.db`, `qmgr0.dat`, and `qmgr1.dat` |
+| `windows_search` | Windows | Windows Search databases `Windows.edb` and `Windows.db` |
+| `windows_outlook` | Windows | Outlook `.ost` and `.pst` stores |
+| `windows_shimdb` | Windows | Application compatibility `.sdb` databases |
+| `windows_userassist` | Windows | UserAssist data from `NTUSER.DAT` |
+| `windows_shimcache` | Windows | ShimCache/AppCompatCache data from `SYSTEM` |
+| `windows_shellbags` | Windows | Shellbags from `NTUSER.DAT` and `USRCLASS.DAT` |
+| `windows_amcache` | Windows | `Amcache.hve` execution and install inventory |
+| `windows_shortcuts` | Windows | Windows shortcut `.lnk` files |
+| `windows_srum` | Windows | `SRUDB.dat` SRUM records |
+| `windows_users` | Windows | Local user and RID data from `SAM` |
+| `windows_services` | Windows | Service configuration data from `SYSTEM` |
+| `windows_jump_lists` | Windows | AutomaticDestinations and CustomDestinations Jump Lists |
+| `windows_recycle_bin` | Windows | Modern Recycle Bin `$I*` metadata files |
+| `windows_scheduled_tasks` | Windows | Legacy `.job` tasks and modern task files under `System32\Tasks` |
+| `windows_wmi_persistence` | Windows | WMI persistence data from repository `OBJECTS.DATA` |
+| `windows_mft` | Windows | Raw NTFS `$MFT` evidence |
 | `windows_usn_journal` | Windows | Raw NTFS `$Extend\$UsnJrnl:$J` records |
 | `windows_registry` | Windows | Offline registry hives |
 | `windows_restore_point_log` | Windows | Restore-point `rp.log` |
@@ -115,6 +135,8 @@ The desktop startup path also reconciles previously tracked shadow copies and pr
 | `linux_shell_history` | Linux | `.bash_history` and `.zsh_history` |
 | `macos_browser_history` | macOS | Chrome history |
 | `macos_quarantine_events` | macOS | Quarantine events database |
+
+Most of the additional Windows parser families are routed through the shared adapter in `src/parsers/windows/artemis.rs` and a vendored Artemis v0.16.0 workspace under `third_party/artemis`, while preserving the existing Holo Forensics plan and output contract. The vendored fork keeps the Windows offline-file fixes in-repo for explicit evidence paths. `windows_bits_collection`, `windows_search_collection`, `windows_outlook_collection`, and `windows_shimdb_collection` are parser-only raw-input contracts today.
 
 Each parser family is bound to an explicit collection contract and documented in the [Parser index](parsers/README.md).
 

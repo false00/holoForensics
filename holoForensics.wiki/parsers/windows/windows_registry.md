@@ -41,3 +41,4 @@ Native Rust offline parser for Windows Registry hives using `notatin`.
 - Update this page if output schema or parser metadata changes.
 - Update this page if transaction-log handling changes.
 - Update this page if deleted-recovery behavior or performance characteristics change.
+

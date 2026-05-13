@@ -1,0 +1,5 @@
+[output]
+namePath = "testing"
+directory = "."
+format = "local"
+compress = 1

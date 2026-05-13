@@ -4,6 +4,8 @@
 
 Native Rust live collector for Windows shortcut acquisition. The collector uses a VSS snapshot, enumerates targeted LNK roots from the snapshot rather than live paths, preserves raw `.lnk` bytes without shell resolution, hashes each copied file, and writes a JSONL artifact inventory for downstream review.
 
+This contract now feeds the `windows_shortcuts` parser family through the shared Artemis adapter in `src/parsers/windows/artemis.rs`.
+
 ## Source
 
 - `src/collections/windows/lnk.rs`

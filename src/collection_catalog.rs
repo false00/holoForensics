@@ -42,6 +42,25 @@ pub fn enabled_collection_definitions() -> Vec<CollectionDefinition> {
             "Windows Prefetch",
             Some("src/collections/windows/prefetch.rs"),
         ),
+        collection("windows_bits_collection", "windows", "Windows BITS", None),
+        collection(
+            "windows_search_collection",
+            "windows",
+            "Windows Search",
+            None,
+        ),
+        collection(
+            "windows_outlook_collection",
+            "windows",
+            "Windows Outlook Stores",
+            None,
+        ),
+        collection(
+            "windows_shimdb_collection",
+            "windows",
+            "Windows Shim Databases",
+            None,
+        ),
         collection(
             "windows_powershell_activity_collection",
             "windows",

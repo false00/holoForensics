@@ -1,0 +1,16 @@
+
+[output]
+name = "logon_collection"
+directory = "./tmp"
+format = "json"
+compress = false
+timeline = false
+endpoint_id = "abdc"
+collection_id = 1
+output = "local"
+
+[[artifacts]]
+artifact_name = "logon"
+[artifacts.logons]
+# Optional
+# alt_file = ""

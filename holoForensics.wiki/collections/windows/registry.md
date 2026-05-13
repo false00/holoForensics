@@ -4,6 +4,8 @@
 
 Native Rust live collector for Windows Registry hives. The primary runtime uses a live VSS snapshot so the collector can preserve hive files, per-user hives, and adjacent transaction logs under their original Windows paths.
 
+This contract now feeds `windows_registry` plus the Artemis-backed `windows_userassist`, `windows_shimcache`, `windows_shellbags`, `windows_amcache`, `windows_users`, and `windows_services` parser families.
+
 ## Source
 
 - `src/collections/windows/registry.rs`

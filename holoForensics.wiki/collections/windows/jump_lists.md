@@ -4,6 +4,8 @@
 
 Native Rust live collector for Windows Jump List acquisition. The collector uses a VSS snapshot, enumerates per-user Automatic and Custom Jump Lists from the snapshot rather than live paths, preserves original Windows paths in the package, hashes each copied file, and writes a JSONL artifact inventory for downstream review.
 
+This contract now feeds the `windows_jump_lists` parser family through the shared Artemis adapter in `src/parsers/windows/artemis.rs`.
+
 ## Source
 
 - `src/collections/windows/jump_lists.rs`

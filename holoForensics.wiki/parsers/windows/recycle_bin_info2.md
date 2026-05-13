@@ -30,3 +30,4 @@ The live collection contract bound to this parser now preserves both modern `$Re
 - Update this page if the input artifact scope changes.
 - Update this page if emitted fields, path handling, or timestamp handling change.
 - Update this page if validation status changes.
+

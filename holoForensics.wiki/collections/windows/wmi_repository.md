@@ -4,6 +4,8 @@
 
 Native Rust live collector for Windows WMI repository acquisition. The collector uses a VSS snapshot, copies WMI repository trees and supporting WBEM recovery material from the snapshot rather than the live path, streams bytes while hashing, records file and directory metadata, and writes centralized collector metadata.
 
+This contract now feeds the `windows_wmi_persistence` parser family through the shared Artemis adapter in `src/parsers/windows/artemis.rs`.
+
 ## Source
 
 - `src/collections/windows/wmi_repository.rs`

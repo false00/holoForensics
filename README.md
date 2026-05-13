@@ -68,6 +68,8 @@ The app also includes Parse Mode for existing evidence archives, settings for th
 
 Holo Forensics has two separate jobs: **Create Package** collects Windows artifacts into a preserved zip layout, and **Parse Mode** turns supported artifacts into JSONL. Some collected artifacts are preserved for later analysis even if Holo does not parse them yet.
 
+Parse Mode also recognizes parser-only raw-input contracts for Windows BITS, Windows Search, Outlook stores, and Shim databases when those files already exist inside the evidence package.
+
 ### Collects Today
 
 | Status | Surface | What is collected |
@@ -88,18 +90,39 @@ Holo Forensics has two separate jobs: **Create Package** collects Windows artifa
 | ✅ | INDX Records | Raw NTFS `$I30` index attributes from directory records |
 | ✅ | `$UsnJrnl` | `$Extend\$UsnJrnl:$J` with sidecar or centralized collector metadata |
 
-Create Package preserves original Windows paths where applicable, hashes collected bytes with SHA-256, and writes collector metadata under `$metadata/collectors/<volume>/<collector>/`. Recycle Bin collection preserves the raw modern and legacy on-disk structure; Parse Mode still only parses XP `INFO2` when that artifact is present.
+Create Package preserves original Windows paths where applicable, hashes collected bytes with SHA-256, and writes collector metadata under `$metadata/collectors/<volume>/<collector>/`. Recycle Bin collection preserves the raw modern and legacy on-disk structure; Parse Mode covers modern `$I*` metadata through `windows_recycle_bin` and XP `INFO2` through `windows_recycle_bin_info2`.
 
 ### Parses Today
 
-| Status | Parser family | Artifact support |
-| :---: | --- | --- |
-| ✅ | `windows_browser_history` | Chrome, Edge, and Firefox local browser history databases |
-| ✅ | `windows_usn_journal` | Raw NTFS `$Extend\$UsnJrnl:$J` streams, including sidecar-aware sparse-range parsing for USN record versions 2 and 3 |
-| ✅ | `windows_registry` | Offline Windows Registry hives including `NTUSER.DAT`, `UsrClass.dat`, `Amcache.hve`, `SYSTEM`, `SOFTWARE`, `SAM`, `SECURITY`, `DEFAULT`, `COMPONENTS`, `settings.dat`, and `drvindex.dat` |
-| ✅ | `windows_restore_point_log` | Windows restore-point `rp.log` |
-| ✅ | `windows_recycle_bin_info2` | Windows XP recycle-bin `INFO2` |
-| ✅ | `windows_timeline` | Windows Timeline `ActivitiesCache.db` |
+| Status | Parser family | Artifact support | Collection/input contract |
+| :---: | --- | --- | --- |
+| ✅ | `windows_browser_history` | Chrome, Edge, and Firefox local browser history databases | `windows_browser_artifacts_collection` |
+| ✅ | `windows_event_logs` | Active and archived `.evtx` event logs | `windows_evtx_collection` |
+| ✅ | `windows_prefetch` | Windows Prefetch `.pf` files | `windows_prefetch_collection` |
+| ✅ | `windows_bits` | BITS job databases `qmgr.db`, `qmgr0.dat`, and `qmgr1.dat` | Parser-only `windows_bits_collection` |
+| ✅ | `windows_search` | Windows Search databases `Windows.edb` and `Windows.db` | Parser-only `windows_search_collection` |
+| ✅ | `windows_outlook` | Outlook `.ost` and `.pst` stores | Parser-only `windows_outlook_collection` |
+| ✅ | `windows_shimdb` | Application compatibility `.sdb` databases | Parser-only `windows_shimdb_collection` |
+| ✅ | `windows_userassist` | UserAssist registry data from `NTUSER.DAT` | `windows_registry_collection` |
+| ✅ | `windows_shimcache` | ShimCache/AppCompatCache data from `SYSTEM` | `windows_registry_collection` |
+| ✅ | `windows_shellbags` | Shellbags from `NTUSER.DAT` and `USRCLASS.DAT` | `windows_registry_collection` |
+| ✅ | `windows_amcache` | `Amcache.hve` execution and install inventory | `windows_registry_collection` |
+| ✅ | `windows_shortcuts` | Windows shortcut `.lnk` files | `windows_lnk_collection` |
+| ✅ | `windows_srum` | `SRUDB.dat` SRUM records | `windows_srum_collection` |
+| ✅ | `windows_users` | Local user and RID data from `SAM` | `windows_registry_collection` |
+| ✅ | `windows_services` | Service configuration data from `SYSTEM` | `windows_registry_collection` |
+| ✅ | `windows_jump_lists` | AutomaticDestinations and CustomDestinations Jump Lists | `windows_jump_lists_collection` |
+| ✅ | `windows_recycle_bin` | Modern Recycle Bin `$I*` metadata files | `windows_recycle_bin_info2_collection` |
+| ✅ | `windows_scheduled_tasks` | Legacy `.job` tasks and modern task files under `System32\Tasks` | `windows_scheduled_tasks_collection` |
+| ✅ | `windows_wmi_persistence` | WMI persistence data from repository `OBJECTS.DATA` | `windows_wmi_repository_collection` |
+| ✅ | `windows_mft` | Raw NTFS `$MFT` evidence | `windows_mft_collection` |
+| ✅ | `windows_usn_journal` | Raw NTFS `$Extend\$UsnJrnl:$J` streams, including sidecar-aware sparse-range parsing for USN record versions 2 and 3 | `windows_usn_journal_collection` |
+| ✅ | `windows_registry` | Offline Windows Registry hives including `NTUSER.DAT`, `UsrClass.dat`, `Amcache.hve`, `SYSTEM`, `SOFTWARE`, `SAM`, `SECURITY`, `DEFAULT`, `COMPONENTS`, `settings.dat`, and `drvindex.dat` | `windows_registry_collection` |
+| ✅ | `windows_restore_point_log` | Windows restore-point `rp.log` | `windows_restore_point_log_collection` |
+| ✅ | `windows_recycle_bin_info2` | Windows XP recycle-bin `INFO2` | `windows_recycle_bin_info2_collection` |
+| ✅ | `windows_timeline` | Windows Timeline `ActivitiesCache.db` | `windows_timeline_collection` |
+
+Most of the additional Windows parser families run through the shared adapter in `src/parsers/windows/artemis.rs` and a vendored Artemis v0.16.0 workspace under `third_party/artemis`. That local fork preserves the existing Holo Forensics plan, manifest, and JSONL output contracts while keeping the Windows offline-file fixes in-repo. Create Package does not yet collect parser-only inputs for BITS, Windows Search, Outlook stores, or Shim databases.
 
 ## Getting Started
 
@@ -141,7 +164,8 @@ output/<collection-name>/
 - `src/` -> active Rust CLI and runtime
 - `src/collection_catalog.rs` -> built-in collection catalog and parser-to-collection validation
 - `src/collections/windows/` -> live Windows collector implementations for browser artifacts, EVTX, Jump Lists, LNK Files, PowerShell Activity, Prefetch, Recycle Bin, Scheduled Tasks, WMI Repository, registry, `$MFT`, `$LogFile`, INDX records, SRUM, and `$UsnJrnl`
-- `src/parsers/windows/` -> native Windows parser implementations for browser history, USN journal, registry, restore-point logs, XP recycle-bin `INFO2`, and Windows Timeline
+- `src/parsers/windows/` -> native and vendored-Artemis-backed Windows parser implementations for browser history, EVTX, Prefetch, registry-derived artifacts, LNK files, Jump Lists, SRUM, Recycle Bin, Scheduled Tasks, WMI persistence, `$MFT`, USN journal, restore-point logs, XP recycle-bin `INFO2`, and Windows Timeline
+- `third_party/artemis/` -> vendored Artemis v0.16.0 workspace maintained in-repo for Windows offline parsing fixes
 - `src/parser_catalog.rs` -> built-in parser family catalog
 - `holoForensics.wiki/` -> parser and collection documentation
 
@@ -154,7 +178,7 @@ output/<collection-name>/
 ## License
 
 - Project source: [Apache License 2.0](LICENSE)
-- Bundled third-party fonts: [Third-party notices](THIRD_PARTY_NOTICES.md)
+- Vendored and bundled third-party software: [Third-party notices](THIRD_PARTY_NOTICES.md)
 
 ## Limitations
 

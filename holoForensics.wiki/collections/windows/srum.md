@@ -4,6 +4,8 @@
 
 Native Rust live collector for Windows SRUM acquisition. The collector uses a VSS snapshot, copies the SRU folder from the snapshot rather than the live path, and includes `SOFTWARE` and `SYSTEM` as supporting hives for parser enrichment and context.
 
+This contract now feeds the `windows_srum` parser family. The current Artemis-backed adapter anchors on preserved `SRUDB.dat` while the supporting hives remain available in the archive for enrichment or external analysis.
+
 ## Source
 
 - `src/collections/windows/srum.rs`

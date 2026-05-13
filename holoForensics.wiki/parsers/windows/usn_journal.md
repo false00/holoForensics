@@ -34,3 +34,4 @@ Native Rust parser for raw NTFS `$Extend\$UsnJrnl:$J` streams collected by `wind
 - Update this page if supported USN record versions change.
 - Update this page if metadata manifest requirements, sparse-range handling, or emitted fields change.
 - Update this page if validation coverage changes.
+

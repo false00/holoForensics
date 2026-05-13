@@ -27,3 +27,4 @@ Native Rust parser for Windows restore-point `rp.log` artifacts.
 - Update this page if input detection changes.
 - Update this page if emitted fields or record granularity change.
 - Update this page if validation status changes.
+

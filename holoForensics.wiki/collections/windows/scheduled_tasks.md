@@ -4,6 +4,8 @@
 
 Native Rust live collector for Windows Scheduled Tasks acquisition. The collector uses a VSS snapshot, copies legacy and modern scheduled task artifacts from the snapshot rather than the live path, streams bytes while hashing, records source timestamps and attributes for both files and task directories, and writes centralized collector metadata.
 
+This contract now feeds the `windows_scheduled_tasks` parser family through the shared Artemis adapter in `src/parsers/windows/artemis.rs`.
+
 ## Source
 
 - `src/collections/windows/scheduled_tasks.rs`

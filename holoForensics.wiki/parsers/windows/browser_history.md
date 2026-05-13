@@ -32,3 +32,4 @@ Native Rust parser for Windows browser history databases.
 - Update this page if the browser parser is rebound to a different collection contract.
 - Update this page if SQL queries, emitted fields, or timestamp normalization change.
 - Update this page if validation coverage changes for Chrome, Edge, or Firefox.
+
