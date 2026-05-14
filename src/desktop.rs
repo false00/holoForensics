@@ -1,7 +1,7 @@
 use std::any::Any;
 use std::collections::{BTreeMap, BTreeSet, hash_map::DefaultHasher};
 use std::env;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::hash::{Hash, Hasher};
 use std::mem::{size_of, size_of_val};
 use std::path::{Path, PathBuf};
@@ -20,22 +20,32 @@ use crate::collections::windows::{indx, logfile, mft, registry, usn_journal, vss
 use crate::runtime_support;
 
 #[cfg(windows)]
+use std::os::windows::fs::OpenOptionsExt;
+
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
+
+#[cfg(windows)]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 #[cfg(windows)]
 use windows::{
     Win32::{
-        Foundation::{E_ABORT, ERROR_SUCCESS, FILETIME, HWND, NTSTATUS},
+        Foundation::{E_ABORT, ERROR_SUCCESS, FILETIME, HANDLE, HWND, NTSTATUS},
         Graphics::Dwm::{
             DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE,
             DwmSetWindowAttribute,
         },
-        Storage::FileSystem::GetVolumeInformationW,
+        Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+            GetVolumeInformationW,
+        },
         System::Com::{
             CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
             CoTaskMemFree, CoUninitialize,
         },
-        System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS},
+        System::IO::DeviceIoControl,
+        System::Ioctl::{DISK_PERFORMANCE, IOCTL_DISK_PERFORMANCE},
         System::Registry::{
             HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegGetValueW,
         },
@@ -43,9 +53,7 @@ use windows::{
             GetPhysicallyInstalledSystemMemory, GetSystemFirmwareTable, GlobalMemoryStatusEx,
             MEMORYSTATUSEX, OSVERSIONINFOW, RSMB,
         },
-        System::Threading::{
-            GetCurrentProcess, GetProcessIoCounters, GetProcessTimes, IO_COUNTERS,
-        },
+        System::Threading::GetSystemTimes,
         UI::Shell::{
             FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM, FOS_NOCHANGEDIR, FOS_PATHMUSTEXIST,
             FOS_PICKFOLDERS, FileOpenDialog, IFileOpenDialog, IShellItem,
@@ -91,9 +99,9 @@ const TRIAGE_COLLECTION_TITLES: &[&str] = &[
 ];
 const DEFAULT_COLLECTION_USN_CHUNK_INDEX: i32 = 1;
 const FALSE00_REPOSITORY_URL: &str = "https://github.com/false00/holoForensics";
-const PARSE_RESOURCE_TARGET: f32 = 0.80;
 const PARSE_IO_VISUAL_CAP_BYTES_PER_SEC: f64 = 256.0 * 1024.0 * 1024.0;
 const PARSE_RESOURCE_REFRESH_MILLIS: u64 = 900;
+const PARSE_PROGRESS_REFRESH_MILLIS: u64 = 1000;
 
 #[derive(Debug, Clone, Default)]
 struct CollectionHostProfile {
@@ -432,6 +440,7 @@ struct DesktopState {
     collection_progress: Option<CollectionProgressState>,
     selected_collection_activity_title: Option<String>,
     detected_plans: Vec<DetectedPlanRecord>,
+    parse_progress_tracker: Option<Arc<Mutex<ProgressTracker>>>,
     selected_collection_volumes: Vec<String>,
     tracked_shadow_copies: Vec<vss::TrackedShadowCopy>,
 }
@@ -446,10 +455,29 @@ impl DesktopState {
             collection_progress: None,
             selected_collection_activity_title: None,
             detected_plans: Vec::new(),
+            parse_progress_tracker: None,
             selected_collection_volumes: default_collection_volumes(),
             tracked_shadow_copies: Vec::new(),
         }
     }
+}
+
+fn set_parse_progress_tracker(
+    state: &Arc<Mutex<DesktopState>>,
+    tracker: Option<Arc<Mutex<ProgressTracker>>>,
+) {
+    let mut state_guard = state.lock().expect("desktop state poisoned");
+    state_guard.parse_progress_tracker = tracker;
+}
+
+fn current_parse_progress_summary(state: &Arc<Mutex<DesktopState>>) -> Option<String> {
+    let tracker = {
+        let state_guard = state.lock().expect("desktop state poisoned");
+        state_guard.parse_progress_tracker.clone()
+    }?;
+
+    let tracker_guard = tracker.lock().expect("parse progress tracker poisoned");
+    Some(tracker_guard.summary())
 }
 
 #[derive(Debug)]
@@ -525,9 +553,9 @@ impl Default for ParseResourceTelemetry {
             cpu_value: 0.0,
             memory_value: 0.0,
             io_value: 0.0,
-            cpu_detail: format!("0% host | 0.00 / {:.2} cores", PARSE_RESOURCE_TARGET),
-            memory_detail: "0 B working set | 0% host RAM".to_string(),
-            io_detail: "0 B/s read+write".to_string(),
+            cpu_detail: "Sampling total CPU...".to_string(),
+            memory_detail: "Sampling total memory...".to_string(),
+            io_detail: "Sampling drive throughput...".to_string(),
         }
     }
 }
@@ -535,22 +563,39 @@ impl Default for ParseResourceTelemetry {
 #[derive(Debug, Default)]
 struct ParseResourceMonitor {
     #[cfg(windows)]
-    last_snapshot: Option<ProcessResourceSnapshot>,
+    last_snapshot: Option<SystemResourceSnapshot>,
 }
 
 #[cfg(windows)]
-#[derive(Debug, Clone, Copy)]
-struct ProcessResourceSnapshot {
+#[derive(Debug, Clone)]
+struct SystemResourceSnapshot {
     captured_at: Instant,
-    cpu_time_100ns: u64,
-    io_bytes: u64,
+    idle_time_100ns: u64,
+    kernel_time_100ns: u64,
+    user_time_100ns: u64,
+    drive_io_bytes: BTreeMap<String, u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ParseIoTarget {
+    AllDrives,
+    Volume(String),
+}
+
+impl ParseIoTarget {
+    fn detail_label(&self) -> String {
+        match self {
+            Self::AllDrives => "all drives".to_string(),
+            Self::Volume(volume) => volume.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 struct ParseExecutionRequest {
     input: PathBuf,
     output: Option<PathBuf>,
-    selected_plan_ids: BTreeSet<String>,
+    selected_plan_ids: Option<BTreeSet<String>>,
     opensearch_url: Option<String>,
     opensearch_username: Option<String>,
     opensearch_password: Option<String>,
@@ -777,18 +822,24 @@ fn initialize_app(
     app.set_parse_output_path(parse_output_path.into());
     app.set_use_elasticsearch(settings.use_elasticsearch);
     app.set_parse_progress_value(0.0);
-    app.set_parse_status("Ready to inspect a collection zip.".into());
+    app.set_parse_status("Ready to parse a collection zip.".into());
     app.set_parse_summary(
-        "Inspect a zip to detect supported artifact groups and choose what to parse.".into(),
+        "Inspect a zip to preview parser plans, or parse immediately with full supported coverage."
+            .into(),
     );
     app.set_parse_resource_cpu_value(0.0);
     app.set_parse_resource_memory_value(0.0);
     app.set_parse_resource_io_value(0.0);
-    app.set_parse_resource_cpu_detail(
-        format!("0% host | 0.00 / {:.2} cores", PARSE_RESOURCE_TARGET).into(),
+    app.set_parse_resource_cpu_detail("Sampling total CPU...".into());
+    app.set_parse_resource_memory_detail("Sampling total memory...".into());
+    app.set_parse_resource_io_detail("Sampling drive throughput...".into());
+    app.set_parse_resource_io_targets(
+        Rc::new(VecModel::from(vec![slint::SharedString::from(
+            "All drives",
+        )]))
+        .into(),
     );
-    app.set_parse_resource_memory_detail("0 B working set | 0% host RAM".into());
-    app.set_parse_resource_io_detail("0 B/s read+write".into());
+    app.set_parse_resource_io_target_index(0);
 
     app.set_elasticsearch_url(settings.elasticsearch_url.clone().into());
     app.set_elasticsearch_username(settings.elasticsearch_username.clone().into());
@@ -799,6 +850,20 @@ fn initialize_app(
     apply_collection_profile_from_app(app, state);
     refresh_collection_catalog(app, state);
     refresh_collection_drives(app, state);
+    let initial_parse_drives = available_collection_drives();
+    let initial_io_target = selected_parse_io_target(
+        &initial_parse_drives,
+        app.get_parse_resource_io_target_index(),
+    );
+    apply_parse_resource_telemetry(
+        app,
+        &sample_parse_resource_telemetry(
+            &parse_resource_monitor,
+            false,
+            &initial_parse_drives,
+            &initial_io_target,
+        ),
+    );
     refresh_collection_activity(app, state);
     refresh_detected_plans(app, state);
     sync_technical_logs(app);
@@ -811,6 +876,8 @@ fn initialize_app(
     }
     schedule_collection_drive_refresh(app.as_weak(), Arc::clone(state));
     schedule_collection_activity_pulse(app.as_weak());
+    schedule_mode_switch_pulse(app.as_weak());
+    schedule_parse_progress_refresh(app.as_weak(), Arc::clone(state));
     if options.screenshot_state.is_none() {
         schedule_technical_log_refresh(app.as_weak());
     }
@@ -929,25 +996,38 @@ fn seed_collection_progress_overlay(app: &AppWindow, state: &Arc<Mutex<DesktopSt
 }
 
 fn seed_parse_page_overlay(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
-    app.set_active_page(1);
-    app.set_parse_archive_path(
-        r"C:\Evidence\Packages\holo-forensics-full-0.1.4-example-host-example-user.zip".into(),
+    let example_version = sanitize_archive_component(env!("CARGO_PKG_VERSION"), "unknown-version");
+    let example_zip = format!(
+        r"C:\Evidence\Packages\holo-forensics-full-{example_version}-example-host-example-user.zip"
     );
+    app.set_active_page(1);
+    app.set_parse_archive_path(example_zip.clone().into());
     app.set_parse_output_path(r"C:\Cases\Example-001\parsed-output".into());
     app.set_parse_running(true);
     app.set_parse_progress_value(0.54);
     app.set_parse_status("Plan 8/15 windows_registry -> C/Windows/System32/config/SYSTEM".into());
     app.set_parse_summary("Elapsed 43s | Remaining 36s | Rate 0.19 plans/s".into());
     app.set_parse_log(
-        "Starting parse for C:\\Evidence\\Packages\\holo-forensics-full-0.1.4-example-host-example-user.zip -> C:\\Cases\\Example-001\\parsed-output\nExtracting C:\\Evidence\\Packages\\holo-forensics-full-0.1.4-example-host-example-user.zip into C:\\Cases\\Example-001\\parsed-output\\extracted\nResolved 7 parser families and 15 selected plans\nFamily 2/7 windows_registry with 5 runnable plans\nPlan 8/15 windows_registry -> C/Windows/System32/config/SYSTEM"
-            .into(),
+        format!(
+            "Starting parse for {example_zip} -> C:\\Cases\\Example-001\\parsed-output\nExtracting {example_zip} into C:\\Cases\\Example-001\\parsed-output\\extracted\nResolved 7 parser families and 15 selected plans\nFamily 2/7 windows_registry with 5 runnable plans\nPlan 8/15 windows_registry -> C/Windows/System32/config/SYSTEM"
+        )
+        .into(),
     );
     app.set_parse_resource_cpu_value(0.36);
     app.set_parse_resource_memory_value(0.18);
     app.set_parse_resource_io_value(0.42);
-    app.set_parse_resource_cpu_detail("36% host | 2.88 / 6.40 cores".into());
-    app.set_parse_resource_memory_detail("5.8 GiB working set | 18% host RAM".into());
-    app.set_parse_resource_io_detail("107 MiB/s read+write".into());
+    app.set_parse_resource_cpu_detail("36% total CPU | 8 logical cores".into());
+    app.set_parse_resource_memory_detail("5.8 GiB / 32 GiB in use | 18% total RAM".into());
+    app.set_parse_resource_io_targets(
+        Rc::new(VecModel::from(vec![
+            slint::SharedString::from("All drives"),
+            slint::SharedString::from("C:"),
+            slint::SharedString::from("E:"),
+        ]))
+        .into(),
+    );
+    app.set_parse_resource_io_target_index(1);
+    app.set_parse_resource_io_detail("107 MiB/s on C:".into());
     app.set_parse_page_viewport_y(0.0);
 
     replace_detected_plans(
@@ -1346,10 +1426,10 @@ fn wire_callbacks(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
                     replace_detected_plans(&browse_parse_archive_state, Vec::new());
                     refresh_detected_plans(&app, &browse_parse_archive_state);
                     app.set_parse_status(
-                        format!("Ready to inspect {}", file_name_or_path(&path)).into(),
+                        format!("Ready to parse {}", file_name_or_path(&path)).into(),
                     );
                     app.set_parse_summary(
-                        "Inspect the selected zip to detect supported parser plans.".into(),
+                        "Inspect to preview parser plans, or parse immediately with full supported coverage.".into(),
                     );
                 }
                 persist_settings(&app, &browse_parse_archive_state)?;
@@ -1817,10 +1897,14 @@ fn start_parse_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Result<
     app.set_parse_progress_value(0.0);
     app.set_parse_status(format!("Parsing {}", file_name_or_path(&request.input)).into());
     app.set_parse_summary(
-        format!(
-            "Selected {} artifact groups.",
-            request.selected_plan_ids.len()
-        )
+        match request.selected_plan_ids.as_ref() {
+            Some(selected_plan_ids) => {
+                format!("Selected {} artifact groups.", selected_plan_ids.len())
+            }
+            None => {
+                "Running all supported parser plans without a pre-inspection filter.".to_string()
+            }
+        }
         .into(),
     );
     refresh_detected_plans(app, state);
@@ -1843,11 +1927,13 @@ fn start_parse_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Result<
         let state_guard = state.lock().expect("desktop state poisoned");
         state_guard.project_root.clone()
     };
+    let tracker = Arc::new(Mutex::new(ProgressTracker::new()));
+    set_parse_progress_tracker(state, Some(Arc::clone(&tracker)));
     let ui = app.as_weak();
     let state_for_events = Arc::clone(state);
+    let state_for_finish = Arc::clone(state);
 
     std::thread::spawn(move || {
-        let mut tracker = ProgressTracker::new();
         let ui_for_events = ui.clone();
         let result = guard_desktop_action("Run parse workflow", || {
             app::run_parse_request(
@@ -1862,13 +1948,13 @@ fn start_parse_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Result<
                 },
                 ParseRunOptions {
                     project_root: Some(project_root),
-                    selected_plan_ids: Some(request.selected_plan_ids.clone()),
+                    selected_plan_ids: request.selected_plan_ids.clone(),
                 },
                 |event| {
                     dispatch_parse_event(
                         ui_for_events.clone(),
                         Arc::clone(&state_for_events),
-                        &mut tracker,
+                        &tracker,
                         event,
                     )
                 },
@@ -1876,6 +1962,7 @@ fn start_parse_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Result<
         });
 
         let _ = slint::invoke_from_event_loop(move || {
+            set_parse_progress_tracker(&state_for_finish, None);
             let Some(app) = ui.upgrade() else {
                 return;
             };
@@ -1910,18 +1997,23 @@ fn start_parse_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Result<
 fn dispatch_parse_event(
     ui: slint::Weak<AppWindow>,
     state: Arc<Mutex<DesktopState>>,
-    tracker: &mut ProgressTracker,
+    tracker: &Arc<Mutex<ProgressTracker>>,
     event: ParseEvent,
 ) {
-    tracker.observe(&event);
+    let (summary, progress) = {
+        let mut tracker_guard = tracker.lock().expect("parse progress tracker poisoned");
+        tracker_guard.observe(&event);
+        let summary = tracker_guard.summary();
+        let progress = match event {
+            ParseEvent::Completed { .. } => 1.0,
+            _ => tracker_guard.progress_value(),
+        };
+        (summary, progress)
+    };
+
     observe_parse_event_for_detected_plans(&state, &event);
 
     let status = event_title(&event);
-    let summary = tracker.summary();
-    let progress = match event {
-        ParseEvent::Completed { .. } => 1.0,
-        _ => tracker.progress_value(),
-    };
     let log_line = event_log_line(&event);
 
     let _ = slint::invoke_from_event_loop(move || {
@@ -2288,21 +2380,8 @@ fn collect_parse_request(
 
     let selected_plan_ids = {
         let state_guard = state.lock().expect("desktop state poisoned");
-        if state_guard.detected_plans.is_empty() {
-            return Err(anyhow!("Inspect the selected zip before starting a parse."));
-        }
-        state_guard
-            .detected_plans
-            .iter()
-            .filter(|plan| plan.selected)
-            .map(|plan| plan.id.clone())
-            .collect::<BTreeSet<_>>()
+        resolve_selected_parse_plan_ids(&state_guard.detected_plans)?
     };
-    if selected_plan_ids.is_empty() {
-        return Err(anyhow!(
-            "Select at least one detected artifact group before starting a parse."
-        ));
-    }
 
     let project_root = {
         let state_guard = state.lock().expect("desktop state poisoned");
@@ -2345,6 +2424,27 @@ fn collect_parse_request(
         },
         opensearch_insecure: use_elasticsearch && app.get_elasticsearch_insecure(),
     })
+}
+
+fn resolve_selected_parse_plan_ids(
+    detected_plans: &[DetectedPlanRecord],
+) -> Result<Option<BTreeSet<String>>> {
+    if detected_plans.is_empty() {
+        return Ok(None);
+    }
+
+    let selected_plan_ids = detected_plans
+        .iter()
+        .filter(|plan| plan.selected)
+        .map(|plan| plan.id.clone())
+        .collect::<BTreeSet<_>>();
+    if selected_plan_ids.is_empty() {
+        return Err(anyhow!(
+            "Select at least one detected artifact group before starting a parse."
+        ));
+    }
+
+    Ok(Some(selected_plan_ids))
 }
 
 fn toggle_detected_plan(
@@ -2429,6 +2529,20 @@ fn observe_parse_event_for_detected_plans(state: &Arc<Mutex<DesktopState>>, even
     let mut state_guard = state.lock().expect("desktop state poisoned");
 
     match event {
+        ParseEvent::PlansResolved { detected_plans, .. } => {
+            if state_guard.detected_plans.is_empty() {
+                state_guard.detected_plans = detected_plans
+                    .iter()
+                    .cloned()
+                    .map(|plan| {
+                        let mut record = DetectedPlanRecord::from_backend(plan);
+                        record.status = "Queued".to_string();
+                        record.tone = 2;
+                        record
+                    })
+                    .collect();
+            }
+        }
         ParseEvent::PlanStarted {
             parser, artifact, ..
         } => {
@@ -3962,6 +4076,7 @@ fn ntfs_artifact_status_message() -> &'static str {
 
 fn refresh_collection_drives(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
     let drives = available_collection_drives();
+    refresh_parse_io_targets(app, &drives);
     let selected_volumes = {
         let mut state_guard = state.lock().expect("desktop state poisoned");
         state_guard.selected_collection_volumes = normalized_selected_volumes_or_default(
@@ -3991,6 +4106,48 @@ fn refresh_collection_drives(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) 
     } else if !previous_supported {
         app.set_collection_status("Ready to create an evidence package.".into());
     }
+}
+
+fn refresh_parse_io_targets(app: &AppWindow, drives: &[CollectionDriveRecord]) {
+    let labels = parse_io_target_labels(drives);
+    app.set_parse_resource_io_targets(
+        Rc::new(VecModel::from(
+            labels
+                .iter()
+                .cloned()
+                .map(slint::SharedString::from)
+                .collect::<Vec<_>>(),
+        ))
+        .into(),
+    );
+
+    let selected_index = app.get_parse_resource_io_target_index();
+    let max_index = labels.len().saturating_sub(1) as i32;
+    let clamped_index = selected_index.clamp(0, max_index);
+    if selected_index != clamped_index {
+        app.set_parse_resource_io_target_index(clamped_index);
+    }
+}
+
+fn parse_io_target_labels(drives: &[CollectionDriveRecord]) -> Vec<String> {
+    let mut labels = Vec::with_capacity(drives.len() + 1);
+    labels.push("All drives".to_string());
+    labels.extend(drives.iter().map(|drive| drive.volume.clone()));
+    labels
+}
+
+fn selected_parse_io_target(
+    drives: &[CollectionDriveRecord],
+    selected_index: i32,
+) -> ParseIoTarget {
+    if selected_index <= 0 {
+        return ParseIoTarget::AllDrives;
+    }
+
+    drives
+        .get(selected_index.saturating_sub(1) as usize)
+        .map(|drive| ParseIoTarget::Volume(drive.volume.clone()))
+        .unwrap_or(ParseIoTarget::AllDrives)
 }
 
 fn persist_settings(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Result<()> {
@@ -4128,6 +4285,7 @@ fn event_log_line(event: &ParseEvent) -> String {
         ParseEvent::PlansResolved {
             family_count,
             total_plans,
+            ..
         } => format!(
             "Resolved {} parser families and {} selected plans",
             family_count, total_plans
@@ -4974,6 +5132,16 @@ fn schedule_collection_activity_pulse(app: slint::Weak<AppWindow>) {
     });
 }
 
+fn schedule_mode_switch_pulse(app: slint::Weak<AppWindow>) {
+    slint::Timer::single_shot(Duration::from_millis(1100), move || {
+        let Some(app) = app.upgrade() else {
+            return;
+        };
+        app.set_mode_switch_pulse(!app.get_mode_switch_pulse());
+        schedule_mode_switch_pulse(app.as_weak());
+    });
+}
+
 fn schedule_parse_resource_refresh(
     app: slint::Weak<AppWindow>,
     monitor: Arc<Mutex<ParseResourceMonitor>>,
@@ -4984,12 +5152,36 @@ fn schedule_parse_resource_refresh(
             let Some(app) = app.upgrade() else {
                 return;
             };
+            let drives = available_collection_drives();
+            let io_target =
+                selected_parse_io_target(&drives, app.get_parse_resource_io_target_index());
             let telemetry = sample_parse_resource_telemetry(
                 &monitor,
                 app.get_parse_running() || app.get_parse_inspecting(),
+                &drives,
+                &io_target,
             );
             apply_parse_resource_telemetry(&app, &telemetry);
             schedule_parse_resource_refresh(app.as_weak(), monitor);
+        },
+    );
+}
+
+fn schedule_parse_progress_refresh(app: slint::Weak<AppWindow>, state: Arc<Mutex<DesktopState>>) {
+    slint::Timer::single_shot(
+        Duration::from_millis(PARSE_PROGRESS_REFRESH_MILLIS),
+        move || {
+            let Some(app) = app.upgrade() else {
+                return;
+            };
+
+            if app.get_parse_running()
+                && let Some(summary) = current_parse_progress_summary(&state)
+            {
+                app.set_parse_summary(summary.into());
+            }
+
+            schedule_parse_progress_refresh(app.as_weak(), state);
         },
     );
 }
@@ -5338,30 +5530,28 @@ fn apply_parse_resource_telemetry(app: &AppWindow, telemetry: &ParseResourceTele
 fn sample_parse_resource_telemetry(
     monitor: &Arc<Mutex<ParseResourceMonitor>>,
     active: bool,
+    drives: &[CollectionDriveRecord],
+    io_target: &ParseIoTarget,
 ) -> ParseResourceTelemetry {
-    sample_parse_resource_telemetry_platform(monitor, active).unwrap_or_else(|| {
-        let mut telemetry = ParseResourceTelemetry::default();
-        if !active {
-            telemetry.cpu_detail = format!("0% host | 0.00 / {:.2} cores", PARSE_RESOURCE_TARGET);
-        }
-        telemetry
-    })
+    sample_parse_resource_telemetry_platform(monitor, active, drives, io_target).unwrap_or_default()
 }
 
 #[cfg(windows)]
 fn sample_parse_resource_telemetry_platform(
     monitor: &Arc<Mutex<ParseResourceMonitor>>,
-    active: bool,
+    _active: bool,
+    drives: &[CollectionDriveRecord],
+    io_target: &ParseIoTarget,
 ) -> Option<ParseResourceTelemetry> {
-    let process = unsafe { GetCurrentProcess() };
     let captured_at = Instant::now();
 
-    let mut creation = FILETIME::default();
-    let mut exit = FILETIME::default();
+    let mut idle = FILETIME::default();
     let mut kernel = FILETIME::default();
     let mut user = FILETIME::default();
-    unsafe { GetProcessTimes(process, &mut creation, &mut exit, &mut kernel, &mut user) }.ok()?;
-    let cpu_time_100ns = filetime_to_u64(kernel).saturating_add(filetime_to_u64(user));
+    unsafe { GetSystemTimes(Some(&mut idle), Some(&mut kernel), Some(&mut user)) }.ok()?;
+    let idle_time_100ns = filetime_to_u64(idle);
+    let kernel_time_100ns = filetime_to_u64(kernel);
+    let user_time_100ns = filetime_to_u64(user);
 
     let mut memory_status = MEMORYSTATUSEX {
         dwLength: size_of::<MEMORYSTATUSEX>() as u32,
@@ -5369,98 +5559,99 @@ fn sample_parse_resource_telemetry_platform(
     };
     unsafe { GlobalMemoryStatusEx(&mut memory_status) }.ok()?;
     let total_physical = memory_status.ullTotalPhys.max(1);
-
-    let mut memory_counters = PROCESS_MEMORY_COUNTERS {
-        cb: size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
-        ..Default::default()
-    };
-    unsafe {
-        K32GetProcessMemoryInfo(
-            process,
-            &mut memory_counters,
-            size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
-        )
-    }
-    .ok()
-    .ok()?;
-    let working_set = memory_counters.WorkingSetSize as u64;
-
-    let mut io_counters = IO_COUNTERS::default();
-    unsafe { GetProcessIoCounters(process, &mut io_counters) }.ok()?;
-    let io_bytes = io_counters
-        .ReadTransferCount
-        .saturating_add(io_counters.WriteTransferCount);
+    let used_physical = total_physical.saturating_sub(memory_status.ullAvailPhys);
+    let drive_io_bytes = drives
+        .iter()
+        .filter_map(|drive| {
+            sample_drive_io_bytes(&drive.volume).map(|bytes| (drive.volume.clone(), bytes))
+        })
+        .collect::<BTreeMap<_, _>>();
 
     let logical_cpus = std::thread::available_parallelism()
         .map(|count| count.get())
-        .unwrap_or(1) as f64;
+        .unwrap_or(1);
+    let io_target_available = match io_target {
+        ParseIoTarget::AllDrives => !drive_io_bytes.is_empty(),
+        ParseIoTarget::Volume(volume) => drive_io_bytes.contains_key(volume),
+    };
     let (cpu_fraction, io_bytes_per_second) = {
         let mut monitor_guard = monitor.lock().expect("parse resource monitor poisoned");
-        let cpu_fraction = monitor_guard
-            .last_snapshot
-            .and_then(|previous| {
-                let elapsed = captured_at
-                    .duration_since(previous.captured_at)
-                    .as_secs_f64();
-                if elapsed <= 0.0 {
-                    return None;
-                }
-                let cpu_delta_seconds =
-                    (cpu_time_100ns.saturating_sub(previous.cpu_time_100ns)) as f64 / 10_000_000.0;
-                Some((cpu_delta_seconds / (elapsed * logical_cpus)).clamp(0.0, 1.0))
-            })
-            .unwrap_or(0.0);
-        let io_bytes_per_second = monitor_guard
-            .last_snapshot
-            .and_then(|previous| {
-                let elapsed = captured_at
-                    .duration_since(previous.captured_at)
-                    .as_secs_f64();
-                if elapsed <= 0.0 {
-                    return None;
-                }
-                Some(io_bytes.saturating_sub(previous.io_bytes) as f64 / elapsed)
-            })
-            .unwrap_or(0.0);
-        monitor_guard.last_snapshot = Some(ProcessResourceSnapshot {
+        let cpu_fraction = monitor_guard.last_snapshot.as_ref().and_then(|previous| {
+            calculate_total_cpu_fraction(
+                previous,
+                idle_time_100ns,
+                kernel_time_100ns,
+                user_time_100ns,
+            )
+        });
+        let io_bytes_per_second = monitor_guard.last_snapshot.as_ref().and_then(|previous| {
+            let elapsed = captured_at
+                .duration_since(previous.captured_at)
+                .as_secs_f64();
+            if elapsed <= 0.0 {
+                return None;
+            }
+            calculate_drive_io_bytes_per_second(
+                io_target,
+                &drive_io_bytes,
+                &previous.drive_io_bytes,
+                elapsed,
+            )
+        });
+        monitor_guard.last_snapshot = Some(SystemResourceSnapshot {
             captured_at,
-            cpu_time_100ns,
-            io_bytes,
+            idle_time_100ns,
+            kernel_time_100ns,
+            user_time_100ns,
+            drive_io_bytes: drive_io_bytes.clone(),
         });
         (cpu_fraction, io_bytes_per_second)
     };
 
-    let memory_fraction = (working_set as f64 / total_physical as f64).clamp(0.0, 1.0);
-    let io_fraction = (io_bytes_per_second / PARSE_IO_VISUAL_CAP_BYTES_PER_SEC).clamp(0.0, 1.0);
-    let cpu_cores = cpu_fraction * logical_cpus;
+    let memory_fraction = (used_physical as f64 / total_physical as f64).clamp(0.0, 1.0);
+    let io_fraction = io_bytes_per_second
+        .map(|bytes_per_second| {
+            (bytes_per_second / PARSE_IO_VISUAL_CAP_BYTES_PER_SEC).clamp(0.0, 1.0)
+        })
+        .unwrap_or(0.0);
 
     Some(ParseResourceTelemetry {
-        cpu_value: cpu_fraction as f32,
+        cpu_value: cpu_fraction.unwrap_or(0.0) as f32,
         memory_value: memory_fraction as f32,
         io_value: io_fraction as f32,
-        cpu_detail: if active {
-            format!(
-                "{:.0}% host | {:.2} / {:.2} cores",
-                cpu_fraction * 100.0,
-                cpu_cores,
-                logical_cpus * f64::from(PARSE_RESOURCE_TARGET)
-            )
-        } else {
-            format!(
-                "{:.0}% host | idle / {:.2} cores",
-                cpu_fraction * 100.0,
-                logical_cpus * f64::from(PARSE_RESOURCE_TARGET)
-            )
-        },
+        cpu_detail: cpu_fraction.map_or_else(
+            || "Sampling total CPU...".to_string(),
+            |cpu_fraction| {
+                format!(
+                    "{:.0}% CPU busy time | {} logical cores",
+                    cpu_fraction * 100.0,
+                    logical_cpus
+                )
+            },
+        ),
         memory_detail: format!(
-            "{} working set | {:.0}% host RAM",
-            format_bytes_binary(working_set),
+            "{} / {} in use | {:.0}% total RAM",
+            format_bytes_binary(used_physical),
+            format_bytes_binary(total_physical),
             memory_fraction * 100.0
         ),
-        io_detail: format!(
-            "{}/s read+write",
-            format_bytes_binary(io_bytes_per_second as u64)
-        ),
+        io_detail: if !io_target_available {
+            format!(
+                "Drive throughput unavailable on {}",
+                io_target.detail_label()
+            )
+        } else {
+            io_bytes_per_second.map_or_else(
+                || format!("Sampling drive throughput on {}", io_target.detail_label()),
+                |io_bytes_per_second| {
+                    format!(
+                        "{}/s on {}",
+                        format_bytes_binary(io_bytes_per_second as u64),
+                        io_target.detail_label()
+                    )
+                },
+            )
+        },
     })
 }
 
@@ -5468,8 +5659,96 @@ fn sample_parse_resource_telemetry_platform(
 fn sample_parse_resource_telemetry_platform(
     _monitor: &Arc<Mutex<ParseResourceMonitor>>,
     _active: bool,
+    _drives: &[CollectionDriveRecord],
+    _io_target: &ParseIoTarget,
 ) -> Option<ParseResourceTelemetry> {
     None
+}
+
+#[cfg(windows)]
+fn calculate_drive_io_bytes_per_second(
+    io_target: &ParseIoTarget,
+    current: &BTreeMap<String, u64>,
+    previous: &BTreeMap<String, u64>,
+    elapsed_seconds: f64,
+) -> Option<f64> {
+    if elapsed_seconds <= 0.0 {
+        return None;
+    }
+
+    let volumes = match io_target {
+        ParseIoTarget::AllDrives => current.keys().cloned().collect::<Vec<_>>(),
+        ParseIoTarget::Volume(volume) => vec![volume.clone()],
+    };
+
+    let mut matched = false;
+    let mut total_delta = 0u64;
+    for volume in volumes {
+        let Some(current_bytes) = current.get(&volume) else {
+            continue;
+        };
+        let Some(previous_bytes) = previous.get(&volume) else {
+            continue;
+        };
+        matched = true;
+        total_delta = total_delta.saturating_add(current_bytes.saturating_sub(*previous_bytes));
+    }
+
+    matched.then_some(total_delta as f64 / elapsed_seconds)
+}
+
+#[cfg(windows)]
+fn calculate_total_cpu_fraction(
+    previous: &SystemResourceSnapshot,
+    idle_time_100ns: u64,
+    kernel_time_100ns: u64,
+    user_time_100ns: u64,
+) -> Option<f64> {
+    let previous_total = previous
+        .kernel_time_100ns
+        .saturating_add(previous.user_time_100ns);
+    let current_total = kernel_time_100ns.saturating_add(user_time_100ns);
+    let total_delta = current_total.saturating_sub(previous_total);
+    if total_delta == 0 {
+        return None;
+    }
+
+    let idle_delta = idle_time_100ns.saturating_sub(previous.idle_time_100ns);
+    Some((total_delta.saturating_sub(idle_delta) as f64 / total_delta as f64).clamp(0.0, 1.0))
+}
+
+#[cfg(windows)]
+fn sample_drive_io_bytes(volume: &str) -> Option<u64> {
+    let normalized_volume = normalized_drive_label(volume)?;
+    let device_path = format!(r"\\.\{}", normalized_volume);
+
+    let mut options = OpenOptions::new();
+    options.access_mode(0);
+    options.share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0 | FILE_SHARE_DELETE.0);
+    options.custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0);
+    let file = options.open(device_path).ok()?;
+
+    let handle = HANDLE(file.as_raw_handle() as *mut core::ffi::c_void);
+    let mut performance = DISK_PERFORMANCE::default();
+    let mut bytes_returned = 0u32;
+    unsafe {
+        DeviceIoControl(
+            handle,
+            IOCTL_DISK_PERFORMANCE,
+            None,
+            0,
+            Some((&mut performance as *mut DISK_PERFORMANCE).cast()),
+            size_of::<DISK_PERFORMANCE>() as u32,
+            Some(&mut bytes_returned),
+            None,
+        )
+    }
+    .ok()?;
+
+    Some(
+        (performance.BytesRead.max(0) as u64)
+            .saturating_add(performance.BytesWritten.max(0) as u64),
+    )
 }
 
 #[cfg(windows)]
@@ -5857,17 +6136,22 @@ fn display_path(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
 
     use anyhow::anyhow;
 
     use super::{
         CollectionActivityTone, CollectionCatalogRecord, CollectionCollectorProgress,
-        CollectionDriveRecord, CollectionProgressState, CollectionRuntimePhase,
+        CollectionDriveRecord, CollectionProgressState, CollectionRuntimePhase, DesktopState,
+        DetectedPlanRecord, ParseEvent, ParseIoTarget, ProgressTracker,
         build_collection_activity_details, build_collection_activity_snapshot,
         build_collection_catalog_records, build_startup_error_dialog_body, collection_source_state,
-        format_error_details, guard_desktop_action, normalize_windows_product_name,
-        normalized_selected_volumes_or_default, panic_payload_message,
+        current_parse_progress_summary, format_error_details, guard_desktop_action,
+        normalize_windows_product_name, normalized_selected_volumes_or_default,
+        observe_parse_event_for_detected_plans, panic_payload_message, parse_io_target_labels,
+        resolve_selected_parse_plan_ids, selected_parse_io_target, set_parse_progress_tracker,
     };
 
     #[test]
@@ -6525,6 +6809,243 @@ mod tests {
             normalized_selected_volumes_or_default(&["Z:".to_string()], &drives),
             vec!["C:".to_string()]
         );
+    }
+
+    #[test]
+    fn parse_io_target_labels_include_all_drives_prefix() {
+        let labels = parse_io_target_labels(&[
+            CollectionDriveRecord {
+                volume: "C:".to_string(),
+                filesystem: "NTFS".to_string(),
+            },
+            CollectionDriveRecord {
+                volume: "E:".to_string(),
+                filesystem: "exFAT".to_string(),
+            },
+        ]);
+
+        assert_eq!(labels, vec!["All drives", "C:", "E:"]);
+    }
+
+    #[test]
+    fn selected_parse_io_target_clamps_invalid_indices_to_all_drives() {
+        let drives = vec![CollectionDriveRecord {
+            volume: "C:".to_string(),
+            filesystem: "NTFS".to_string(),
+        }];
+
+        assert_eq!(
+            selected_parse_io_target(&drives, -1),
+            ParseIoTarget::AllDrives
+        );
+        assert_eq!(
+            selected_parse_io_target(&drives, 0),
+            ParseIoTarget::AllDrives
+        );
+        assert_eq!(
+            selected_parse_io_target(&drives, 2),
+            ParseIoTarget::AllDrives
+        );
+        assert_eq!(
+            selected_parse_io_target(&drives, 1),
+            ParseIoTarget::Volume("C:".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_selected_parse_plan_ids_allows_parse_without_inspection() {
+        let selected =
+            resolve_selected_parse_plan_ids(&[]).expect("uninspected parses should remain valid");
+
+        assert!(selected.is_none());
+    }
+
+    #[test]
+    fn resolve_selected_parse_plan_ids_requires_one_selected_detected_plan() {
+        let error = resolve_selected_parse_plan_ids(&[
+            DetectedPlanRecord {
+                id: "plan-1".to_string(),
+                title: "Windows Event Logs".to_string(),
+                subtitle: "windows_event_logs".to_string(),
+                detail: "Windows EVTX Collection".to_string(),
+                status: "Skipped".to_string(),
+                selected: false,
+                active: false,
+                tone: 0,
+            },
+            DetectedPlanRecord {
+                id: "plan-2".to_string(),
+                title: "Registry Hives".to_string(),
+                subtitle: "windows_registry".to_string(),
+                detail: "Windows Registry Collection".to_string(),
+                status: "Skipped".to_string(),
+                selected: false,
+                active: false,
+                tone: 0,
+            },
+        ])
+        .expect_err("inspected parses should still require an explicit selection");
+
+        assert!(
+            error
+                .to_string()
+                .contains("Select at least one detected artifact group")
+        );
+    }
+
+    #[test]
+    fn resolve_selected_parse_plan_ids_returns_selected_detected_plans() {
+        let selected = resolve_selected_parse_plan_ids(&[
+            DetectedPlanRecord {
+                id: "plan-1".to_string(),
+                title: "Windows Event Logs".to_string(),
+                subtitle: "windows_event_logs".to_string(),
+                detail: "Windows EVTX Collection".to_string(),
+                status: "Selected".to_string(),
+                selected: true,
+                active: false,
+                tone: 1,
+            },
+            DetectedPlanRecord {
+                id: "plan-2".to_string(),
+                title: "Registry Hives".to_string(),
+                subtitle: "windows_registry".to_string(),
+                detail: "Windows Registry Collection".to_string(),
+                status: "Skipped".to_string(),
+                selected: false,
+                active: false,
+                tone: 0,
+            },
+        ])
+        .expect("selected detected plans should be returned");
+
+        assert_eq!(selected, Some(BTreeSet::from(["plan-1".to_string()])));
+    }
+
+    #[test]
+    fn plans_resolved_seeds_detected_plans_for_direct_parse() {
+        let state = Arc::new(Mutex::new(DesktopState::new(
+            PathBuf::from("project-root"),
+            PathBuf::from("settings.json"),
+        )));
+
+        observe_parse_event_for_detected_plans(
+            &state,
+            &ParseEvent::PlansResolved {
+                family_count: 1,
+                total_plans: 2,
+                detected_plans: vec![
+                    crate::app::DetectedPlan {
+                        id: "windows_event_logs::Security.evtx".to_string(),
+                        parser: "windows_event_logs".to_string(),
+                        collection: "windows_event_logs_collection".to_string(),
+                        artifact: "Security.evtx".to_string(),
+                    },
+                    crate::app::DetectedPlan {
+                        id: "windows_registry::SYSTEM".to_string(),
+                        parser: "windows_registry".to_string(),
+                        collection: "windows_registry_collection".to_string(),
+                        artifact: "SYSTEM".to_string(),
+                    },
+                ],
+            },
+        );
+
+        let state_guard = state.lock().expect("desktop state poisoned");
+        assert_eq!(state_guard.detected_plans.len(), 2);
+        assert!(state_guard.detected_plans.iter().all(|plan| plan.selected));
+        assert!(state_guard.detected_plans.iter().all(|plan| !plan.active));
+        assert!(
+            state_guard
+                .detected_plans
+                .iter()
+                .all(|plan| plan.status == "Queued")
+        );
+        assert!(state_guard.detected_plans.iter().all(|plan| plan.tone == 2));
+    }
+
+    #[test]
+    fn plans_resolved_preserves_existing_detected_plan_selection() {
+        let state = Arc::new(Mutex::new(DesktopState::new(
+            PathBuf::from("project-root"),
+            PathBuf::from("settings.json"),
+        )));
+        {
+            let mut state_guard = state.lock().expect("desktop state poisoned");
+            state_guard.detected_plans = vec![DetectedPlanRecord {
+                id: "windows_event_logs::Security.evtx".to_string(),
+                title: "Security.evtx".to_string(),
+                subtitle: "windows_event_logs".to_string(),
+                detail: "Windows Event Logs".to_string(),
+                status: "Excluded".to_string(),
+                selected: false,
+                active: false,
+                tone: 0,
+            }];
+        }
+
+        observe_parse_event_for_detected_plans(
+            &state,
+            &ParseEvent::PlansResolved {
+                family_count: 1,
+                total_plans: 1,
+                detected_plans: vec![crate::app::DetectedPlan {
+                    id: "windows_event_logs::Security.evtx".to_string(),
+                    parser: "windows_event_logs".to_string(),
+                    collection: "windows_event_logs_collection".to_string(),
+                    artifact: "Security.evtx".to_string(),
+                }],
+            },
+        );
+
+        let state_guard = state.lock().expect("desktop state poisoned");
+        assert_eq!(state_guard.detected_plans.len(), 1);
+        assert_eq!(state_guard.detected_plans[0].status, "Excluded");
+        assert!(!state_guard.detected_plans[0].selected);
+        assert_eq!(state_guard.detected_plans[0].tone, 0);
+    }
+
+    #[test]
+    fn current_parse_progress_summary_reflects_active_tracker_before_plan_resolution() {
+        let state = Arc::new(Mutex::new(DesktopState::new(
+            PathBuf::from("project-root"),
+            PathBuf::from("settings.json"),
+        )));
+
+        set_parse_progress_tracker(&state, Some(Arc::new(Mutex::new(ProgressTracker::new()))));
+
+        let summary = current_parse_progress_summary(&state)
+            .expect("active parse tracker should expose a live summary snapshot during extraction");
+
+        assert!(summary.contains("Elapsed"));
+        assert!(summary.contains("Remaining n/a"));
+        assert!(summary.contains("Rate n/a"));
+    }
+
+    #[test]
+    fn current_parse_progress_summary_reflects_active_tracker_after_plan_resolution() {
+        let state = Arc::new(Mutex::new(DesktopState::new(
+            PathBuf::from("project-root"),
+            PathBuf::from("settings.json"),
+        )));
+        let tracker = Arc::new(Mutex::new(ProgressTracker::new()));
+        {
+            let mut tracker_guard = tracker.lock().expect("parse progress tracker poisoned");
+            tracker_guard.observe(&ParseEvent::PlansResolved {
+                family_count: 2,
+                total_plans: 5,
+                detected_plans: Vec::new(),
+            });
+        }
+
+        set_parse_progress_tracker(&state, Some(tracker));
+
+        let summary = current_parse_progress_summary(&state)
+            .expect("resolved plans should expose a live summary snapshot");
+
+        assert!(summary.contains("Elapsed"));
+        assert!(summary.contains("Remaining"));
+        assert!(summary.contains("Rate"));
     }
 
     #[test]

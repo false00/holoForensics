@@ -55,6 +55,14 @@ The collection view is built for Windows acquisition: choose a source volume, co
 
 The app also includes a dedicated Parse page for existing evidence archives, with zip and output selection, detected-artifact toggles, live parser-plan status, and CPU/RAM/I-O telemetry beside the standard settings and shadow-copy recovery prompts.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/holo-forensics-parse-page-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="assets/screenshots/holo-forensics-parse-page-light.png">
+  <img src="assets/screenshots/holo-forensics-parse-page-light.png" alt="Holo Forensics desktop parse page">
+</picture>
+
+The parse view keeps archive selection, supported-artifact detection, live parser-plan tracking, and system telemetry in one place so you can inspect or run offline parsing without leaving the desktop workflow.
+
 ## Why This Exists
 
 - One-language implementation for Windows collection and parsing, without PowerShell or batch wrapper chains as the core runtime

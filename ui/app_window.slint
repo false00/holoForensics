@@ -68,6 +68,8 @@ export component AppWindow inherits Window {
     in-out property <string> selected-collection-note;
     in-out property <bool> selected-collection-live: false;
     in-out property <int> active-page: 0;
+    in-out property <bool> console-expanded: false;
+    in-out property <bool> mode-switch-pulse: false;
 
     in-out property <string> parse-archive-path;
     in-out property <string> parse-output-path;
@@ -84,6 +86,8 @@ export component AppWindow inherits Window {
     in-out property <string> parse-resource-cpu-detail;
     in-out property <string> parse-resource-memory-detail;
     in-out property <string> parse-resource-io-detail;
+    in property <[string]> parse-resource-io-targets;
+    in-out property <int> parse-resource-io-target-index: 0;
     in-out property <length> parse-page-viewport-y: 0px;
     in property <[ParseArtifactItem]> detected-artifacts;
 
@@ -120,6 +124,8 @@ export component AppWindow inherits Window {
             width: parent.width;
             height: parent.height;
             active-page: root.active-page;
+            console-expanded <=> root.console-expanded;
+            mode-switch-pulse: root.mode-switch-pulse;
             collection-profile <=> root.collection-profile;
             collection-archive-path: root.collection-archive-path;
             collection-output-filename: root.collection-output-filename;
@@ -160,6 +166,8 @@ export component AppWindow inherits Window {
             width: parent.width;
             height: parent.height;
             active-page: root.active-page;
+            console-expanded <=> root.console-expanded;
+            mode-switch-pulse: root.mode-switch-pulse;
             collection-host-platform: root.collection-host-platform;
             collection-host-hardware: root.collection-host-hardware;
             parse-archive-path: root.parse-archive-path;
@@ -177,6 +185,8 @@ export component AppWindow inherits Window {
             parse-resource-cpu-detail: root.parse-resource-cpu-detail;
             parse-resource-memory-detail: root.parse-resource-memory-detail;
             parse-resource-io-detail: root.parse-resource-io-detail;
+            parse-resource-io-targets: root.parse-resource-io-targets;
+            parse-resource-io-target-index <=> root.parse-resource-io-target-index;
             page-viewport-y <=> root.parse-page-viewport-y;
 
             open-settings-requested => { root.settings-open = true; }

@@ -382,6 +382,7 @@ pub enum ParseEvent {
     PlansResolved {
         family_count: usize,
         total_plans: usize,
+        detected_plans: Vec<DetectedPlan>,
     },
     ParserFamilyStarted {
         name: String,
@@ -497,16 +498,10 @@ pub fn inspect_parse_archive(
     prepare_clean_directory(&extracted_dir)?;
     collection::extract_full(input, &extracted_dir)?;
 
-    let detected_plans = build_planned_families(&extracted_dir, &parser_families)?
-        .into_iter()
-        .flat_map(|(_, plans)| plans.unwrap_or_default())
-        .map(|plan| DetectedPlan {
-            id: plan_id(&plan),
-            parser: plan.parser,
-            collection: plan.collection,
-            artifact: plan.artifact,
-        })
-        .collect::<Vec<_>>();
+    let detected_plans = detected_plans_from_planned_families(&build_planned_families(
+        &extracted_dir,
+        &parser_families,
+    )?);
 
     Ok(ParseInspectionSummary {
         zip_base,
@@ -1505,9 +1500,12 @@ where
     } else {
         planned_families.len()
     };
+    let detected_plans = detected_plans_from_planned_families(&planned_families);
+
     reporter(ParseEvent::PlansResolved {
         family_count: reported_family_count,
         total_plans,
+        detected_plans,
     });
 
     let mut run_manifest = Manifest {
@@ -1807,6 +1805,21 @@ fn build_planned_families(
             Ok((family.clone(), plans))
         })
         .collect::<Result<Vec<_>>>()
+}
+
+fn detected_plans_from_planned_families(
+    planned_families: &[(parser_catalog::ParserFamily, Option<Vec<parsers::Plan>>)],
+) -> Vec<DetectedPlan> {
+    planned_families
+        .iter()
+        .flat_map(|(_, plans)| plans.iter().flat_map(|plans| plans.iter()))
+        .map(|plan| DetectedPlan {
+            id: plan_id(plan),
+            parser: plan.parser.clone(),
+            collection: plan.collection.clone(),
+            artifact: plan.artifact.clone(),
+        })
+        .collect()
 }
 
 fn zip_base(input: &Path) -> String {

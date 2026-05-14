@@ -22,7 +22,6 @@ component ParsePlanRow inherits Rectangle {
     border-width: 1px;
     border-color: root.active ? root.accent-color.with-alpha(0.72) : root.selected ? ThemeTokens.primary.with-alpha(0.42) : ThemeTokens.stroke;
     background: touch.enabled && touch.has-hover ? ThemeTokens.accent-soft : root.active ? ThemeTokens.accent-soft.with-alpha(0.72) : ThemeTokens.card;
-    opacity: root.enabled ? 1 : 0.58;
     clip: true;
     animate background { duration: 100ms; }
     animate border-color { duration: 100ms; }
@@ -132,6 +131,113 @@ component ParsePlanRow inherits Rectangle {
     }
 }
 
+component ParseStatusInfoRow inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+
+    height: 38px;
+    clip: true;
+    border-radius: ThemeTokens.radius-small;
+    border-width: 1px;
+    border-color: ThemeTokens.stroke;
+    background: ThemeTokens.card;
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding-left: 9px;
+        padding-right: 9px;
+        padding-top: 6px;
+        padding-bottom: 6px;
+        spacing: 3px;
+
+        SectionLabel {
+            horizontal-stretch: 1;
+            text: root.label;
+        }
+
+        InfoLine {
+            horizontal-stretch: 1;
+            text: root.value;
+        }
+    }
+}
+
+component ParseStatusDetailPanel inherits Rectangle {
+    in property <string> phase;
+    in property <string> current-status;
+    in property <string> summary;
+    in property <float> progress-value: 0;
+    in property <string> coverage;
+
+    clip: true;
+    border-radius: ThemeTokens.radius-medium;
+    border-width: 1px;
+    border-color: ThemeTokens.stroke;
+    background: ThemeTokens.panel;
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding: 10px;
+        spacing: 7px;
+
+        HorizontalLayout {
+            height: 18px;
+            spacing: 8px;
+
+            Text {
+                horizontal-stretch: 1;
+                text: "Parser / Info";
+                color: ThemeTokens.text;
+                font-family: "Figtree";
+                font-size: 13px;
+                font-weight: 500;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            Text {
+                width: 78px;
+                text: root.phase;
+                color: ThemeTokens.muted;
+                font-family: "Figtree";
+                font-size: 11px;
+                font-weight: 500;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+
+        HelperText {
+            horizontal-stretch: 1;
+            height: 24px;
+            text: root.summary == "" ? "Inspect a collection zip to preview parser plans, or parse immediately with full supported coverage." : root.summary;
+        }
+
+        ProgressBar {
+            horizontal-stretch: 1;
+            height: 8px;
+            value: root.progress-value;
+            fill: ThemeTokens.primary;
+            track: ThemeTokens.surface;
+        }
+
+        ParseStatusInfoRow {
+            horizontal-stretch: 1;
+            label: "CURRENT";
+            value: root.current-status == "" ? "Ready to parse a collection zip." : root.current-status;
+        }
+
+        ParseStatusInfoRow {
+            horizontal-stretch: 1;
+            label: "PLAN VIEW";
+            value: root.coverage;
+        }
+    }
+}
+
 component ResourceMetricCard inherits Rectangle {
     in property <string> label;
     in property <string> detail;
@@ -139,7 +245,7 @@ component ResourceMetricCard inherits Rectangle {
     in property <float> target: 0.8;
     in property <color> accent: ThemeTokens.primary;
 
-    height: 78px;
+    height: 88px;
     border-radius: ThemeTokens.radius-medium;
     border-width: 1px;
     border-color: ThemeTokens.stroke;
@@ -167,7 +273,7 @@ component ResourceMetricCard inherits Rectangle {
 
         Text {
             horizontal-stretch: 1;
-            height: 22px;
+            height: 24px;
             text: root.detail;
             color: ThemeTokens.muted;
             font-family: "Figtree";
@@ -210,6 +316,9 @@ component ParseResourcePanel inherits Rectangle {
     in property <string> cpu-detail;
     in property <string> memory-detail;
     in property <string> io-detail;
+    in property <string> status-text;
+    in property <[string]> io-targets;
+    in-out property <int> io-target-index: 0;
     in property <bool> busy: false;
 
     clip: true;
@@ -217,6 +326,9 @@ component ParseResourcePanel inherits Rectangle {
     border-width: 1px;
     border-color: ThemeTokens.stroke;
     background: ThemeTokens.panel;
+
+    private property <bool> io-target-clickable: root.io-targets.length > 1;
+    private property <string> io-target-label: root.io-target-index >= 0 && root.io-target-index < root.io-targets.length ? root.io-targets[root.io-target-index] : "All drives";
 
     VerticalLayout {
         width: parent.width;
@@ -240,19 +352,19 @@ component ParseResourcePanel inherits Rectangle {
             }
 
             Badge {
-                width: 118px;
-                label: root.busy ? "LIVE TELEMETRY" : "STANDBY";
+                width: 128px;
+                label: root.busy ? "PROGRAM ACTIVE" : "READY TO PARSE";
             }
         }
 
         HelperText {
             horizontal-stretch: 1;
-            height: 18px;
-            text: "Live process telemetry with visible 80% CPU and memory target markers during offline parsing.";
+            height: 32px;
+            text: root.status-text == "" ? "System-wide CPU, memory, and selected drive throughput stay live during offline parsing." : root.status-text;
         }
 
         HorizontalLayout {
-            height: 78px;
+            height: 88px;
             spacing: 8px;
 
             ResourceMetricCard {
@@ -271,12 +383,130 @@ component ParseResourcePanel inherits Rectangle {
                 accent: ThemeTokens.copal;
             }
 
-            ResourceMetricCard {
+            Rectangle {
                 horizontal-stretch: 1;
-                label: "I/O";
-                detail: root.io-detail;
-                value: root.io-value;
-                accent: ThemeTokens.risk;
+                height: 88px;
+                border-radius: ThemeTokens.radius-medium;
+                border-width: 1px;
+                border-color: ThemeTokens.stroke;
+                background: ThemeTokens.card;
+
+                VerticalLayout {
+                    width: parent.width;
+                    height: parent.height;
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    padding-top: 7px;
+                    padding-bottom: 7px;
+                    spacing: 4px;
+
+                    HorizontalLayout {
+                        height: 38px;
+                        spacing: 8px;
+
+                        Text {
+                            width: 24px;
+                            height: parent.height;
+                            text: "I/O";
+                            color: ThemeTokens.text;
+                            font-family: "Figtree";
+                            font-size: 12px;
+                            font-weight: 500;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: parent.height;
+                            border-radius: ThemeTokens.radius-medium;
+                            border-width: 1px;
+                            border-color: io-target-touch.has-hover && root.io-target-clickable ? ThemeTokens.primary.with-alpha(0.48) : ThemeTokens.stroke;
+                            background: io-target-touch.has-hover && root.io-target-clickable ? ThemeTokens.accent-soft : ThemeTokens.surface;
+                            opacity: root.io-target-clickable ? 1 : 0.72;
+                            animate background { duration: 100ms; }
+                            animate border-color { duration: 100ms; }
+
+                            HorizontalLayout {
+                                width: parent.width;
+                                height: parent.height;
+                                padding-left: 12px;
+                                padding-right: 10px;
+                                spacing: 8px;
+
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: root.io-target-label;
+                                    color: ThemeTokens.text;
+                                    font-family: "Figtree";
+                                    font-size: 13px;
+                                    font-weight: 500;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+
+                                Text {
+                                    text: root.io-target-clickable ? "Click to cycle" : "Fixed";
+                                    color: ThemeTokens.muted;
+                                    font-family: "Figtree";
+                                    font-size: 10px;
+                                    font-weight: 500;
+                                    vertical-alignment: center;
+                                }
+
+                                Path {
+                                    width: 10px;
+                                    height: 10px;
+                                    viewbox-x: 0;
+                                    viewbox-y: 0;
+                                    viewbox-width: 10;
+                                    viewbox-height: 10;
+                                    stroke: root.io-target-clickable ? ThemeTokens.primary : ThemeTokens.muted;
+                                    stroke-width: 1.4px;
+                                    fill: transparent;
+                                    commands: "M 1 5 L 9 5 M 6 2 L 9 5 L 6 8";
+                                }
+                            }
+
+                            io-target-touch := TouchArea {
+                                width: parent.width;
+                                height: parent.height;
+                                enabled: root.io-target-clickable;
+                                clicked => {
+                                    if root.io-targets.length > 1 {
+                                        root.io-target-index = root.io-target-index + 1 >= root.io-targets.length ? 0 : root.io-target-index + 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Text {
+                        horizontal-stretch: 1;
+                        height: 18px;
+                        text: root.io-detail;
+                        color: ThemeTokens.muted;
+                        font-family: "Figtree";
+                        font-size: 11px;
+                        font-weight: 400;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 10px;
+                        border-radius: 5px;
+                        background: ThemeTokens.surface;
+
+                        Rectangle {
+                            width: max(0px, parent.width * min(1.0, max(0.0, root.io-value)));
+                            height: parent.height;
+                            border-radius: 5px;
+                            background: ThemeTokens.risk;
+                            animate width { duration: 240ms; }
+                        }
+                    }
+                }
             }
         }
     }
@@ -284,6 +514,8 @@ component ParseResourcePanel inherits Rectangle {
 
 export component ParsePage inherits Rectangle {
     in property <int> active-page: 1;
+    in-out property <bool> console-expanded: false;
+    in property <bool> mode-switch-pulse: false;
     in property <string> collection-host-platform;
     in property <string> collection-host-hardware;
     in property <string> parse-archive-path;
@@ -301,6 +533,8 @@ export component ParsePage inherits Rectangle {
     in property <string> parse-resource-cpu-detail;
     in property <string> parse-resource-memory-detail;
     in property <string> parse-resource-io-detail;
+    in property <[string]> parse-resource-io-targets;
+    in-out property <int> parse-resource-io-target-index: 0;
     in-out property <length> page-viewport-y: 0px;
 
     callback open-settings-requested();
@@ -314,22 +548,25 @@ export component ParsePage inherits Rectangle {
 
     private property <bool> compact-layout: self.width < 620px;
     private property <bool> short-layout: self.height < 760px;
-    private property <bool> console-manually-expanded: false;
-    private property <bool> console-manually-collapsed: false;
-    private property <bool> console-expanded: root.console-manually-expanded || (!root.short-layout && !root.console-manually-collapsed);
     private property <length> page-padding: root.compact-layout ? 12px : 14px;
     private property <length> page-spacing: root.compact-layout ? 6px : 8px;
     private property <length> header-card-height: root.compact-layout ? 102px : 84px;
     private property <length> header-mode-row-y: root.compact-layout ? 14px : 8px;
     private property <length> header-action-row-y: (root.header-card-height - 38px) / 2;
-    private property <length> resource-card-height: root.compact-layout ? 164px : 152px;
+    private property <length> resource-card-height: root.compact-layout ? 176px : 164px;
     private property <length> setup-card-height: root.compact-layout ? 214px : root.short-layout ? 188px : 196px;
     private property <bool> has-detected-artifacts: root.detected-artifacts.length > 0;
     private property <length> tail-height: max(0px, root.height - (root.page-padding * 2) - (root.page-spacing * 4) - root.header-card-height - root.resource-card-height - root.setup-card-height);
     private property <length> status-max-height: root.has-detected-artifacts ? (root.compact-layout ? 360px : 318px) : (root.compact-layout ? 220px : 196px);
     private property <length> status-min-height: root.has-detected-artifacts ? (root.compact-layout ? 144px : 136px) : (root.compact-layout ? 116px : 104px);
+    private property <length> status-detail-min-width: 280px;
+    private property <length> status-master-min-width: 280px;
+    private property <length> status-split-handle-width: 12px;
+    private property <length> parse-detail-width: 336px;
+    private property <length> status-split-drag-start-width: 336px;
+    private property <length> status-split-drag-start-pointer-x: 0px;
     private property <length> console-collapsed-height: 54px;
-    private property <length> console-min-expanded-height: 126px;
+    private property <length> console-min-expanded-height: 104px;
     private property <length> console-card-height: root.console-expanded ? max(root.console-min-expanded-height, root.tail-height - root.status-max-height) : root.console-collapsed-height;
     private property <length> status-card-height: max(root.status-min-height, root.tail-height - root.console-card-height);
     private property <int> detected-plan-column-count: root.compact-layout ? 1 : 2;
@@ -482,6 +719,8 @@ export component ParsePage inherits Rectangle {
                         width: 76px;
                         label: "Collect";
                         active: root.active-page == 0;
+                        animation-pulse: root.mode-switch-pulse;
+                        enabled: !root.busy;
                         clicked => {
                             root.page-viewport-y = 0px;
                             root.switch-page-requested(0);
@@ -492,6 +731,8 @@ export component ParsePage inherits Rectangle {
                         width: 76px;
                         label: "Parse";
                         active: root.active-page == 1;
+                        animation-pulse: root.mode-switch-pulse;
+                        enabled: !root.busy;
                         clicked => {
                             root.page-viewport-y = 0px;
                             root.switch-page-requested(1);
@@ -508,6 +749,7 @@ export component ParsePage inherits Rectangle {
 
                     GhostButton {
                         width: root.compact-layout ? 82px : 88px;
+                        enabled: !root.busy;
                         foreground: ThemeTokens.hero-foreground;
                         fill: ThemeTokens.panel;
                         hover-fill: ThemeTokens.accent-soft;
@@ -518,6 +760,7 @@ export component ParsePage inherits Rectangle {
 
                     GhostButton {
                         width: root.compact-layout ? 98px : 110px;
+                        enabled: !root.busy;
                         foreground: ThemeTokens.hero-foreground;
                         fill: ThemeTokens.panel;
                         hover-fill: ThemeTokens.accent-soft;
@@ -537,6 +780,9 @@ export component ParsePage inherits Rectangle {
                 cpu-detail: root.parse-resource-cpu-detail;
                 memory-detail: root.parse-resource-memory-detail;
                 io-detail: root.parse-resource-io-detail;
+                status-text: root.parse-status;
+                io-targets: root.parse-resource-io-targets;
+                io-target-index <=> root.parse-resource-io-target-index;
                 busy: root.busy;
             }
 
@@ -555,7 +801,7 @@ export component ParsePage inherits Rectangle {
                     HelperText {
                         horizontal-stretch: 1;
                         height: 18px;
-                        text: "Inspect a collection zip, confirm the detected parser plans, and run offline parsing into a selected output folder.";
+                        text: "Inspect a collection zip to preview parser plans, or parse immediately to run every supported offline parser into the selected output folder.";
                     }
 
                     HorizontalLayout {
@@ -566,7 +812,7 @@ export component ParsePage inherits Rectangle {
 
                         InfoLine {
                             horizontal-stretch: 1;
-                            text: root.parse-archive-path == "" ? "Browse starts in your collection package folder until a zip is selected." : "Re-inspect the selected zip at any time to refresh the supported parser plan list.";
+                            text: root.parse-archive-path == "" ? "Browse starts in your collection package folder until a zip is selected." : "Inspect refreshes the parser plan preview, but Parse can run immediately against the selected zip.";
                         }
                     }
 
@@ -629,7 +875,7 @@ export component ParsePage inherits Rectangle {
 
                         PrimaryButton {
                             width: 128px;
-                            enabled: !root.busy && root.detected-artifacts.length > 0;
+                            enabled: !root.busy && root.parse-archive-path != "";
                             fill: ThemeTokens.risk;
                             hover-fill: ThemeTokens.risk-hover;
                             stroke: ThemeTokens.risk.with-alpha(0.74);
@@ -672,29 +918,157 @@ export component ParsePage inherits Rectangle {
                         }
                     }
 
-                    HelperText {
-                        horizontal-stretch: 1;
-                        height: 24px;
-                        text: root.parse-summary == "" ? "Inspect a zip to populate parser plans." : root.parse-summary;
-                    }
-
-                    ProgressBar {
-                        horizontal-stretch: 1;
-                        height: 8px;
-                        value: root.parse-progress-value;
-                        fill: ThemeTokens.primary;
-                        track: ThemeTokens.surface;
-                    }
-
-                    CardPanel {
+                    if !root.compact-layout : split-area := Rectangle {
                         horizontal-stretch: 1;
                         vertical-stretch: 1;
-                        background: ThemeTokens.panel;
+                        clip: true;
+
+                        private property <length> clamped-detail-width: max(
+                            root.status-detail-min-width,
+                            min(
+                                root.parse-detail-width,
+                                self.width - root.status-master-min-width - root.status-split-handle-width
+                            )
+                        );
+                        private property <length> plan-list-width: max(
+                            0px,
+                            self.width - self.clamped-detail-width - root.status-split-handle-width
+                        );
+
+                        Rectangle {
+                            x: 0px;
+                            y: 0px;
+                            width: split-area.plan-list-width;
+                            height: parent.height;
+                            background: transparent;
+
+                            VerticalLayout {
+                                width: parent.width;
+                                height: parent.height;
+                                spacing: 8px;
+
+                                HorizontalLayout {
+                                    height: 18px;
+                                    spacing: 8px;
+
+                                    Text {
+                                        horizontal-stretch: 1;
+                                        text: "Detected Parser Plans";
+                                        color: ThemeTokens.text;
+                                        font-family: "Tomorrow";
+                                        font-size: 18px;
+                                        font-weight: 300;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                HelperText {
+                                    horizontal-stretch: 1;
+                                    height: root.has-detected-artifacts ? 34px : 18px;
+                                    text: root.busy ? "Current rows highlight active parser groups as the workflow advances." : root.has-detected-artifacts ? "Use the list to review or change supported parser groups before you start." : "Inspect a collection zip to preview supported parser groups, or parse immediately with full supported coverage.";
+                                }
+
+                                if root.has-detected-artifacts : ScrollView {
+                                    vertical-stretch: 1;
+
+                                    VerticalLayout {
+                                        width: max(0px, parent.width - 10px);
+                                        alignment: start;
+                                        spacing: 6px;
+
+                                        for item[index] in root.detected-artifacts : ParsePlanRow {
+                                            horizontal-stretch: 1;
+                                            title: item.title;
+                                            subtitle: item.subtitle;
+                                            detail: item.detail;
+                                            status: item.status;
+                                            selected: item.selected;
+                                            active: item.active;
+                                            tone: item.tone;
+                                            enabled: !root.busy;
+                                            toggled => { root.toggle-detected_artifact(index); }
+                                        }
+                                    }
+                                }
+
+                                if !root.has-detected-artifacts : InfoLine {
+                                    horizontal-stretch: 1;
+                                    height: 18px;
+                                    text: root.busy ? "Resolving supported artifact groups..." : "No supported artifact groups detected yet.";
+                                }
+                            }
+                        }
+
+                        split-divider := Rectangle {
+                            x: split-area.plan-list-width;
+                            y: 0px;
+                            width: root.status-split-handle-width;
+                            height: parent.height;
+                            background: transparent;
+
+                            Rectangle {
+                                x: (parent.width - self.width) / 2;
+                                y: 10px;
+                                width: 2px;
+                                height: max(0px, parent.height - 20px);
+                                border-radius: 1px;
+                                background: split-touch.pressed ? ThemeTokens.primary.with-alpha(0.55) : split-touch.has-hover ? ThemeTokens.primary.with-alpha(0.34) : ThemeTokens.stroke;
+                            }
+
+                            Rectangle {
+                                x: 2px;
+                                y: max(8px, (parent.height - self.height) / 2);
+                                width: max(0px, parent.width - 4px);
+                                height: 42px;
+                                border-radius: 6px;
+                                background: split-touch.pressed ? ThemeTokens.primary.with-alpha(0.16) : split-touch.has-hover ? ThemeTokens.accent-soft : transparent;
+                            }
+
+                            split-touch := TouchArea {
+                                width: parent.width;
+                                height: parent.height;
+                                mouse-cursor: ew-resize;
+
+                                pointer-event(event) => {
+                                    if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                                        root.status-split-drag-start-width = split-area.clamped-detail-width;
+                                        root.status-split-drag-start-pointer-x = split-touch.absolute-position.x + split_touch.pressed-x;
+                                    }
+                                }
+
+                                moved => {
+                                    root.parse-detail-width = max(
+                                        root.status-detail-min-width,
+                                        min(
+                                            root.status-split-drag-start-width - ((split_touch.absolute-position.x + split_touch.mouse_x) - root.status-split-drag-start-pointer-x),
+                                            split-area.width - root.status-master-min-width - root.status-split-handle-width
+                                        )
+                                    );
+                                }
+                            }
+                        }
+
+                        ParseStatusDetailPanel {
+                            x: split-area.plan-list-width + root.status-split-handle-width;
+                            y: 0px;
+                            width: split-area.clamped-detail-width;
+                            height: parent.height;
+                            phase: root.busy ? "ACTIVE" : root.has-detected-artifacts ? "READY" : "IDLE";
+                            current-status: root.parse-status;
+                            summary: root.parse-summary;
+                            progress-value: root.parse-progress-value;
+                            coverage: root.busy ? "Left-side rows track the parser group currently being executed." : root.has-detected-artifacts ? "Use the list on the left to include or exclude detected parser groups." : "Inspect to preview parser groups, or parse immediately to run every supported offline parser.";
+                        }
+                    }
+
+                    if root.compact-layout : VerticalLayout {
+                        horizontal-stretch: 1;
+                        vertical-stretch: 1;
+                        spacing: 8px;
 
                         VerticalLayout {
-                            width: parent.width;
-                            height: parent.height;
-                            padding: 10px;
+                            horizontal-stretch: 1;
+                            vertical-stretch: 1;
                             spacing: 8px;
 
                             HorizontalLayout {
@@ -710,29 +1084,23 @@ export component ParsePage inherits Rectangle {
                                     font-weight: 300;
                                     vertical-alignment: center;
                                 }
-
-                                Badge {
-                                    width: 122px;
-                                    label: root.busy ? "LIVE PLAN TRACKING" : "SELECTION READY";
-                                }
                             }
 
                             HelperText {
                                 horizontal-stretch: 1;
                                 height: root.has-detected-artifacts ? 34px : 18px;
-                                text: root.busy ? "Current rows highlight active plans and retain completion state as the parse advances." : root.has-detected-artifacts ? "Toggle rows to include or exclude supported artifacts before starting the parse." : "Inspect a collection zip to populate supported parser plans.";
+                                text: root.busy ? "Current rows highlight active parser groups as the workflow advances." : root.has-detected-artifacts ? "Use the list to review or change supported parser groups before you start." : "Inspect a collection zip to preview supported parser groups, or parse immediately with full supported coverage.";
                             }
 
                             if root.has-detected-artifacts : ScrollView {
                                 vertical-stretch: 1;
 
-                                GridLayout {
+                                VerticalLayout {
                                     width: max(0px, parent.width - 10px);
+                                    alignment: start;
                                     spacing: 6px;
 
                                     for item[index] in root.detected-artifacts : ParsePlanRow {
-                                        row: index / root.detected-plan-column-count;
-                                        col: Math.mod(index, root.detected-plan-column-count);
                                         horizontal-stretch: 1;
                                         title: item.title;
                                         subtitle: item.subtitle;
@@ -741,7 +1109,6 @@ export component ParsePage inherits Rectangle {
                                         selected: item.selected;
                                         active: item.active;
                                         tone: item.tone;
-                                        dense: root.detected-plan-column-count > 1;
                                         enabled: !root.busy;
                                         toggled => { root.toggle-detected-artifact(index); }
                                     }
@@ -753,6 +1120,16 @@ export component ParsePage inherits Rectangle {
                                 height: 18px;
                                 text: root.busy ? "Resolving supported artifact groups..." : "No supported artifact groups detected yet.";
                             }
+                        }
+
+                        ParseStatusDetailPanel {
+                            horizontal-stretch: 1;
+                            height: 228px;
+                            phase: root.busy ? "ACTIVE" : root.has-detected-artifacts ? "READY" : "IDLE";
+                            current-status: root.parse-status;
+                            summary: root.parse-summary;
+                            progress-value: root.parse-progress-value;
+                            coverage: root.busy ? "Rows above track the parser group currently being executed." : root.has-detected-artifacts ? "Use the list above to include or exclude detected parser groups." : "Inspect to preview parser groups, or parse immediately to run every supported offline parser.";
                         }
                     }
                 }
@@ -787,15 +1164,7 @@ export component ParsePage inherits Rectangle {
                             width: 86px;
                             height: 24px;
                             label: root.console-expanded ? "Collapse" : "Expand";
-                            clicked => {
-                                if root.console-expanded {
-                                    root.console-manually-collapsed = true;
-                                    root.console-manually-expanded = false;
-                                } else {
-                                    root.console-manually-expanded = true;
-                                    root.console-manually-collapsed = false;
-                                }
-                            }
+                            clicked => { root.console-expanded = !root.console-expanded; }
                         }
                     }
 

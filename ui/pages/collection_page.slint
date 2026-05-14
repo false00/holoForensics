@@ -396,6 +396,8 @@ component CollectionActivityDetailPanel inherits Rectangle {
 
 export component CollectionPage inherits Rectangle {
     in property <int> active-page: 0;
+    in-out property <bool> console-expanded: false;
+    in property <bool> mode-switch-pulse: false;
     in-out property <int> collection-profile: 0;
     in property <string> collection-archive-path;
     in property <string> collection-output-filename;
@@ -427,9 +429,6 @@ export component CollectionPage inherits Rectangle {
 
     private property <bool> compact-layout: self.width < 620px;
     private property <bool> short-layout: self.height < 760px;
-    private property <bool> console-manually-expanded: false;
-    private property <bool> console-manually-collapsed: false;
-    private property <bool> console-expanded: root.console-manually-expanded || (!root.short-layout && !root.console-manually-collapsed);
     private property <length> page-padding: root.compact-layout ? 12px : 14px;
     private property <length> page-spacing: root.compact-layout ? 6px : 8px;
     private property <length> header-card-height: root.compact-layout ? 102px : 84px;
@@ -597,6 +596,7 @@ export component CollectionPage inherits Rectangle {
                         width: 76px;
                         label: "Collect";
                         active: root.active-page == 0;
+                        animation-pulse: root.mode-switch-pulse;
                         clicked => { root.switch-page-requested(0); }
                     }
 
@@ -604,6 +604,7 @@ export component CollectionPage inherits Rectangle {
                         width: 76px;
                         label: "Parse";
                         active: root.active-page == 1;
+                        animation-pulse: root.mode-switch-pulse;
                         clicked => { root.switch-page-requested(1); }
                     }
                 }
@@ -921,15 +922,7 @@ export component CollectionPage inherits Rectangle {
                                 width: 86px;
                                 height: 24px;
                                 label: root.console-expanded ? "Collapse" : "Expand";
-                                clicked => {
-                                    if root.console-expanded {
-                                        root.console-manually-collapsed = true;
-                                        root.console-manually-expanded = false;
-                                    } else {
-                                        root.console-manually-expanded = true;
-                                        root.console-manually-collapsed = false;
-                                    }
-                                }
+                                clicked => { root.console-expanded = !root.console-expanded; }
                             }
                         }
 
