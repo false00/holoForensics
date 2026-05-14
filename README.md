@@ -14,7 +14,7 @@ Consistent Windows forensic collection and offline artifact parsing in one Rust 
 
 Holo Forensics is a Windows-first forensic workbench for two jobs investigators perform repeatedly: collecting live evidence into a stable package, and parsing supported evidence into reviewable JSONL.
 
-Most people should start with the desktop app. The UI walks through source selection, evidence-scope review, package destination, collection progress, parse planning, and settings without hiding the runtime artifacts written underneath.
+Most people should start with the desktop app. The UI now separates that workflow into two focused pages: Collect for source selection, evidence-scope review, packaging, and live collector status, and Parse for zip selection, parse planning, live plan tracking, and output telemetry.
 
 The same Rust runtime also powers the CLI for labs, automation, and validation, but the main workflow is designed around the desktop experience.
 
@@ -29,7 +29,7 @@ Then follow the normal operator flow:
 1. Choose the source volume you want to collect from.
 2. Review or customize the evidence scope before packaging.
 3. Pick the destination folder and create the evidence package.
-4. Use Parse Mode in the UI when you want to inspect and parse an existing evidence zip.
+4. Switch to the Parse page when you want to browse to a collection zip, inspect supported artifacts, and run offline parsing.
 
 If you want source-build, CLI, or lab-validation details, use the [wiki home technical reference](holoForensics.wiki/Home.md#technical-reference).
 
@@ -53,7 +53,7 @@ The scope dialog makes it clear which evidence groups are live today, which are 
 
 The collection view is built for Windows acquisition: choose a source volume, confirm the scope, set the package destination, and watch each collector move from queued to staged or complete.
 
-The app also includes Parse Mode for existing evidence archives, settings for theme and search defaults, and recovery prompts for shadow copies that were created by earlier collection runs.
+The app also includes a dedicated Parse page for existing evidence archives, with zip and output selection, detected-artifact toggles, live parser-plan status, and CPU/RAM/I-O telemetry beside the standard settings and shadow-copy recovery prompts.
 
 ## Why This Exists
 
@@ -155,7 +155,7 @@ The desktop UI supports:
 
 - Collection section: `Full`, `Triage`, and `Custom` profiles are exposed in the UI. The Collection tab presents the Windows collection surfaces listed above, with available live collectors for event logs, registry, Prefetch, Scheduled Tasks, WMI Repository, PowerShell Activity, browser artifacts, Jump Lists, LNK Files, Recycle Bin, SRUM, `$MFT`, `$LogFile`, INDX records, and `$UsnJrnl`.
 - Collection workflow section: when multiple VSS-backed collectors run for the same volume, the package workflow reuses one shared point-in-time VSS snapshot so related artifacts stay aligned.
-- Parse Mode section: inspect a selected zip, detect supported artifact groups, choose which detected groups to run, and write parser results without blocking the UI.
+- Parse Mode section: use the Parse page to browse to a selected zip, detect supported artifact groups, choose which detected groups to run, watch live plan status and resource telemetry, and write parser results without blocking the UI.
 - Settings section: persist theme and Elasticsearch destination defaults. The password remains session-local.
 - Failure handling section: collection and parse failures surface through desktop error dialogs, and startup failures before Slint is ready fall back to a native Windows error dialog with the technical log path.
 - Runtime safety section: VSS shadow copies created by Holo Forensics are tracked under `~/.holo-forensics/vss-shadow-copies.json`. If the app starts and those tracked snapshots still exist, the desktop UI prompts to keep them for reuse or delete them before continuing.

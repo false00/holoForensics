@@ -43,11 +43,9 @@ flowchart LR
 
 The desktop application focuses on the work investigators repeat most:
 
-- Choose one or more NTFS-backed volumes.
-- Review an evidence scope before collection.
-- Package live artifacts through the Rust collectors.
-- Inspect an evidence zip and select detected parser groups.
-- Parse in the background while progress, logs, and final output paths remain visible.
+- Work from a dedicated Collect page for source selection, evidence scope, package destination, and live collector status.
+- Switch to a dedicated Parse page for zip selection, output selection, detected-plan toggles, and live parser progress.
+- Watch active parse plans, CPU/RAM/I-O telemetry, logs, and final output paths while parsing runs in the background.
 - Surface collection and parse failures in modal error dialogs, with a native Windows fallback if startup fails before the UI is ready.
 - Persist operator preferences such as theme, output locations, and search defaults.
 
@@ -61,7 +59,7 @@ Most operators should use the desktop workflow first:
 2. Choose the source volume.
 3. Review the evidence scope.
 4. Choose the package destination and create the archive.
-5. Use Parse Mode in the UI to inspect and parse an existing evidence zip.
+5. Switch to the Parse page to inspect and parse an existing evidence zip.
 
 Launch the desktop app:
 

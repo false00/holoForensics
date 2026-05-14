@@ -396,6 +396,37 @@ export component ToggleChip inherits Rectangle {
     }
 }
 
+export component MiniModeButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> active: false;
+    callback clicked();
+
+    height: 28px;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: root.active ? ThemeTokens.primary.with-alpha(0.72) : ThemeTokens.stroke;
+    background: touch.has-hover || root.active ? ThemeTokens.accent-soft : ThemeTokens.panel;
+    animate background { duration: 100ms; }
+    animate border-color { duration: 100ms; }
+
+    Text {
+        text: root.label;
+        color: root.active ? ThemeTokens.text : ThemeTokens.muted;
+        font-family: "Figtree";
+        font-size: 11px;
+        font-weight: 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    touch := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => { root.clicked(); }
+    }
+}
+
 export component SelectField inherits Rectangle {
     in property <string> placeholder;
     in property <[string]> items;

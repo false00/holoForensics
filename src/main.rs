@@ -12,6 +12,7 @@ use holo_forensics::desktop::{DesktopLaunchOptions, DesktopScreenshotState, Desk
 #[derive(Debug, Clone, ValueEnum)]
 enum ScreenshotState {
     Main,
+    Parse,
     About,
     Settings,
     Scope,
@@ -30,6 +31,7 @@ impl From<ScreenshotState> for DesktopScreenshotState {
     fn from(value: ScreenshotState) -> Self {
         match value {
             ScreenshotState::Main => DesktopScreenshotState::Main,
+            ScreenshotState::Parse => DesktopScreenshotState::Parse,
             ScreenshotState::About => DesktopScreenshotState::About,
             ScreenshotState::Settings => DesktopScreenshotState::Settings,
             ScreenshotState::Scope => DesktopScreenshotState::Scope,

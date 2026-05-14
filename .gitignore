@@ -15,6 +15,7 @@ output/
 
 # Intake collections and scratch data
 *.zip
+.tmp/
 tmp/
 temp/
 

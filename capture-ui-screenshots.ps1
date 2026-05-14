@@ -1,6 +1,6 @@
 param(
     [string]$OutputDir = "output/ui-review-screenshots",
-    [string[]]$States = @("main", "collection-progress", "settings", "about", "scope", "usn-settings"),
+    [string[]]$States = @("main", "parse", "collection-progress", "settings", "about", "scope", "usn-settings"),
     [ValidateSet("system", "light", "dark")]
     [string]$Theme = "system",
     [int]$TrimMargin = 0,

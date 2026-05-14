@@ -25,7 +25,7 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 #[cfg(windows)]
 use windows::{
     Win32::{
-        Foundation::{E_ABORT, ERROR_SUCCESS, HWND, NTSTATUS},
+        Foundation::{E_ABORT, ERROR_SUCCESS, FILETIME, HWND, NTSTATUS},
         Graphics::Dwm::{
             DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE,
             DwmSetWindowAttribute,
@@ -35,16 +35,21 @@ use windows::{
             CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
             CoTaskMemFree, CoUninitialize,
         },
+        System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS},
         System::Registry::{
             HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegGetValueW,
         },
         System::SystemInformation::{
-            GetPhysicallyInstalledSystemMemory, GetSystemFirmwareTable, OSVERSIONINFOW, RSMB,
+            GetPhysicallyInstalledSystemMemory, GetSystemFirmwareTable, GlobalMemoryStatusEx,
+            MEMORYSTATUSEX, OSVERSIONINFOW, RSMB,
+        },
+        System::Threading::{
+            GetCurrentProcess, GetProcessIoCounters, GetProcessTimes, IO_COUNTERS,
         },
         UI::Shell::{
-            FOS_FORCEFILESYSTEM, FOS_NOCHANGEDIR, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS,
-            FileOpenDialog, IFileOpenDialog, IShellItem, SHCreateItemFromParsingName,
-            SIGDN_FILESYSPATH, ShellExecuteW,
+            FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM, FOS_NOCHANGEDIR, FOS_PATHMUSTEXIST,
+            FOS_PICKFOLDERS, FileOpenDialog, IFileOpenDialog, IShellItem,
+            SHCreateItemFromParsingName, SIGDN_FILESYSPATH, ShellExecuteW,
         },
         UI::WindowsAndMessaging::{
             MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MB_TASKMODAL, MessageBoxW, SW_SHOWNORMAL,
@@ -86,6 +91,9 @@ const TRIAGE_COLLECTION_TITLES: &[&str] = &[
 ];
 const DEFAULT_COLLECTION_USN_CHUNK_INDEX: i32 = 1;
 const FALSE00_REPOSITORY_URL: &str = "https://github.com/false00/holoForensics";
+const PARSE_RESOURCE_TARGET: f32 = 0.80;
+const PARSE_IO_VISUAL_CAP_BYTES_PER_SEC: f64 = 256.0 * 1024.0 * 1024.0;
+const PARSE_RESOURCE_REFRESH_MILLIS: u64 = 900;
 
 #[derive(Debug, Clone, Default)]
 struct CollectionHostProfile {
@@ -102,6 +110,7 @@ pub struct DesktopLaunchOptions {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DesktopScreenshotState {
     Main,
+    Parse,
     About,
     Settings,
     Scope,
@@ -203,7 +212,10 @@ struct DetectedPlanRecord {
     title: String,
     subtitle: String,
     detail: String,
+    status: String,
     selected: bool,
+    active: bool,
+    tone: i32,
 }
 
 impl DetectedPlanRecord {
@@ -213,7 +225,10 @@ impl DetectedPlanRecord {
             title: plan.artifact,
             subtitle: plan.parser,
             detail: collection_label(&plan.collection),
+            status: "Selected".to_string(),
             selected: true,
+            active: false,
+            tone: 1,
         }
     }
 
@@ -223,7 +238,10 @@ impl DetectedPlanRecord {
             title: self.title.clone().into(),
             subtitle: self.subtitle.clone().into(),
             detail: self.detail.clone().into(),
+            status: self.status.clone().into(),
             selected: self.selected,
+            active: self.active,
+            tone: self.tone,
         }
     }
 }
@@ -492,6 +510,43 @@ impl ProgressTracker {
 }
 
 #[derive(Debug, Clone)]
+struct ParseResourceTelemetry {
+    cpu_value: f32,
+    memory_value: f32,
+    io_value: f32,
+    cpu_detail: String,
+    memory_detail: String,
+    io_detail: String,
+}
+
+impl Default for ParseResourceTelemetry {
+    fn default() -> Self {
+        Self {
+            cpu_value: 0.0,
+            memory_value: 0.0,
+            io_value: 0.0,
+            cpu_detail: format!("0% host | 0.00 / {:.2} cores", PARSE_RESOURCE_TARGET),
+            memory_detail: "0 B working set | 0% host RAM".to_string(),
+            io_detail: "0 B/s read+write".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct ParseResourceMonitor {
+    #[cfg(windows)]
+    last_snapshot: Option<ProcessResourceSnapshot>,
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy)]
+struct ProcessResourceSnapshot {
+    captured_at: Instant,
+    cpu_time_100ns: u64,
+    io_bytes: u64,
+}
+
+#[derive(Debug, Clone)]
 struct ParseExecutionRequest {
     input: PathBuf,
     output: Option<PathBuf>,
@@ -658,6 +713,7 @@ fn initialize_app(
     settings: &DesktopSettings,
     options: DesktopLaunchOptions,
 ) -> Result<()> {
+    let parse_resource_monitor = Arc::new(Mutex::new(ParseResourceMonitor::default()));
     let project_root = {
         let state_guard = state.lock().expect("desktop state poisoned");
         state_guard.project_root.clone()
@@ -725,6 +781,14 @@ fn initialize_app(
     app.set_parse_summary(
         "Inspect a zip to detect supported artifact groups and choose what to parse.".into(),
     );
+    app.set_parse_resource_cpu_value(0.0);
+    app.set_parse_resource_memory_value(0.0);
+    app.set_parse_resource_io_value(0.0);
+    app.set_parse_resource_cpu_detail(
+        format!("0% host | 0.00 / {:.2} cores", PARSE_RESOURCE_TARGET).into(),
+    );
+    app.set_parse_resource_memory_detail("0 B working set | 0% host RAM".into());
+    app.set_parse_resource_io_detail("0 B/s read+write".into());
 
     app.set_elasticsearch_url(settings.elasticsearch_url.clone().into());
     app.set_elasticsearch_username(settings.elasticsearch_username.clone().into());
@@ -747,8 +811,13 @@ fn initialize_app(
     }
     schedule_collection_drive_refresh(app.as_weak(), Arc::clone(state));
     schedule_collection_activity_pulse(app.as_weak());
-    schedule_technical_log_refresh(app.as_weak());
+    if options.screenshot_state.is_none() {
+        schedule_technical_log_refresh(app.as_weak());
+    }
     schedule_window_chrome_theme_refresh(app.as_weak());
+    if options.screenshot_state.is_none() {
+        schedule_parse_resource_refresh(app.as_weak(), parse_resource_monitor);
+    }
     Ok(())
 }
 
@@ -767,6 +836,9 @@ fn apply_launch_overlays(
 
     match screenshot_state.unwrap_or(DesktopScreenshotState::Main) {
         DesktopScreenshotState::Main => {}
+        DesktopScreenshotState::Parse => {
+            seed_parse_page_overlay(app, state);
+        }
         DesktopScreenshotState::About => app.set_about_open(true),
         DesktopScreenshotState::Settings => app.set_settings_open(true),
         DesktopScreenshotState::Scope => app.set_evidence_scope_open(true),
@@ -854,6 +926,94 @@ fn seed_collection_progress_overlay(app: &AppWindow, state: &Arc<Mutex<DesktopSt
             .into(),
     );
     refresh_collection_activity(app, state);
+}
+
+fn seed_parse_page_overlay(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
+    app.set_active_page(1);
+    app.set_parse_archive_path(
+        r"C:\Evidence\Packages\holo-forensics-full-0.1.4-example-host-example-user.zip".into(),
+    );
+    app.set_parse_output_path(r"C:\Cases\Example-001\parsed-output".into());
+    app.set_parse_running(true);
+    app.set_parse_progress_value(0.54);
+    app.set_parse_status("Plan 8/15 windows_registry -> C/Windows/System32/config/SYSTEM".into());
+    app.set_parse_summary("Elapsed 43s | Remaining 36s | Rate 0.19 plans/s".into());
+    app.set_parse_log(
+        "Starting parse for C:\\Evidence\\Packages\\holo-forensics-full-0.1.4-example-host-example-user.zip -> C:\\Cases\\Example-001\\parsed-output\nExtracting C:\\Evidence\\Packages\\holo-forensics-full-0.1.4-example-host-example-user.zip into C:\\Cases\\Example-001\\parsed-output\\extracted\nResolved 7 parser families and 15 selected plans\nFamily 2/7 windows_registry with 5 runnable plans\nPlan 8/15 windows_registry -> C/Windows/System32/config/SYSTEM"
+            .into(),
+    );
+    app.set_parse_resource_cpu_value(0.36);
+    app.set_parse_resource_memory_value(0.18);
+    app.set_parse_resource_io_value(0.42);
+    app.set_parse_resource_cpu_detail("36% host | 2.88 / 6.40 cores".into());
+    app.set_parse_resource_memory_detail("5.8 GiB working set | 18% host RAM".into());
+    app.set_parse_resource_io_detail("107 MiB/s read+write".into());
+    app.set_parse_page_viewport_y(0.0);
+
+    replace_detected_plans(
+        state,
+        vec![
+            app::DetectedPlan {
+                id: "windows_amcache:C/Windows/AppCompat/Programs/Amcache.hve".to_string(),
+                parser: "windows_amcache".to_string(),
+                collection: "windows_registry_collection".to_string(),
+                artifact: "C/Windows/AppCompat/Programs/Amcache.hve".to_string(),
+            },
+            app::DetectedPlan {
+                id: "windows_registry:C/Windows/System32/config/SYSTEM".to_string(),
+                parser: "windows_registry".to_string(),
+                collection: "windows_registry_collection".to_string(),
+                artifact: "C/Windows/System32/config/SYSTEM".to_string(),
+            },
+            app::DetectedPlan {
+                id: "windows_mft:C/$MFT.bin".to_string(),
+                parser: "windows_mft".to_string(),
+                collection: "windows_mft_collection".to_string(),
+                artifact: "C/$MFT.bin".to_string(),
+            },
+            app::DetectedPlan {
+                id: "windows_jump_lists:C/Users/analyst/AppData/Roaming/Microsoft/Windows/Recent/AutomaticDestinations/f01b4d95cf55d32a.automaticDestinations-ms".to_string(),
+                parser: "windows_jump_lists".to_string(),
+                collection: "windows_jump_lists_collection".to_string(),
+                artifact: "C/Users/analyst/AppData/Roaming/Microsoft/Windows/Recent/AutomaticDestinations/f01b4d95cf55d32a.automaticDestinations-ms".to_string(),
+            },
+        ],
+    );
+
+    {
+        let mut state_guard = state.lock().expect("desktop state poisoned");
+        if let Some(plan) = state_guard.detected_plans.get_mut(0) {
+            plan.status = "Complete".to_string();
+            plan.tone = 4;
+        }
+        if let Some(plan) = state_guard.detected_plans.get_mut(1) {
+            plan.status = "Running".to_string();
+            plan.active = true;
+            plan.tone = 3;
+        }
+        if let Some(plan) = state_guard.detected_plans.get_mut(2) {
+            plan.status = "Queued".to_string();
+            plan.tone = 2;
+        }
+        if let Some(plan) = state_guard.detected_plans.get_mut(3) {
+            plan.status = "Queued".to_string();
+            plan.tone = 2;
+        }
+    }
+
+    refresh_detected_plans(app, state);
+    schedule_parse_page_scroll_reset(app);
+}
+
+fn schedule_parse_page_scroll_reset(app: &AppWindow) {
+    let ui = app.as_weak();
+    let _ = slint::invoke_from_event_loop(move || {
+        let Some(app) = ui.upgrade() else {
+            return;
+        };
+
+        app.set_parse_page_viewport_y(0.0);
+    });
 }
 
 fn guard_desktop_action<T>(operation: &str, action: impl FnOnce() -> Result<T>) -> Result<T> {
@@ -1157,6 +1317,65 @@ fn wire_callbacks(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
             Ok(())
         }) {
             report_collection_error(&app, "Destination update failed", &error);
+        }
+    });
+
+    let browse_parse_archive_app = app.as_weak();
+    let browse_parse_archive_state = Arc::clone(state);
+    app.on_browse_parse_archive_requested(move || {
+        let Some(app) = browse_parse_archive_app.upgrade() else {
+            return;
+        };
+        if let Err(error) = guard_desktop_action("Select collection zip", || {
+            let initial_path = parse_archive_picker_initial_path(&app, &browse_parse_archive_state);
+            if let Some(path) =
+                browse_for_file(&initial_path, "Select collection zip to inspect", "Use Zip")?
+            {
+                let previous_input = normalized_path(app.get_parse_archive_path().to_string());
+                let project_root = {
+                    let state_guard = browse_parse_archive_state
+                        .lock()
+                        .expect("desktop state poisoned");
+                    state_guard.project_root.clone()
+                };
+                app.set_parse_archive_path(display_path(&path).into());
+                app.set_parse_output_path(
+                    display_path(&parse_output_path_for_zip(&project_root, &path)).into(),
+                );
+                if previous_input.as_deref() != Some(path.as_path()) {
+                    replace_detected_plans(&browse_parse_archive_state, Vec::new());
+                    refresh_detected_plans(&app, &browse_parse_archive_state);
+                    app.set_parse_status(
+                        format!("Ready to inspect {}", file_name_or_path(&path)).into(),
+                    );
+                    app.set_parse_summary(
+                        "Inspect the selected zip to detect supported parser plans.".into(),
+                    );
+                }
+                persist_settings(&app, &browse_parse_archive_state)?;
+            }
+            Ok(())
+        }) {
+            report_parse_error(&app, "Collection zip selection failed", &error);
+        }
+    });
+
+    let browse_parse_output_app = app.as_weak();
+    let browse_parse_output_state = Arc::clone(state);
+    app.on_browse_parse_output_requested(move || {
+        let Some(app) = browse_parse_output_app.upgrade() else {
+            return;
+        };
+        if let Err(error) = guard_desktop_action("Select parse output folder", || {
+            let initial_dir = parse_output_picker_initial_dir(&app, &browse_parse_output_state);
+            if let Some(path) = browse_for_directory(&initial_dir)? {
+                app.set_parse_output_path(display_path(&path).into());
+                persist_settings(&app, &browse_parse_output_state)?;
+                app.set_parse_status("Parse output folder updated.".into());
+            }
+            Ok(())
+        }) {
+            report_parse_error(&app, "Parse output update failed", &error);
         }
     });
 
@@ -1533,7 +1752,9 @@ fn start_archive_inspection_for_input(
     app.set_parse_progress_value(0.0);
     app.set_parse_status(format!("Inspecting {}", file_name_or_path(&input)).into());
     app.set_parse_summary("Extracting the zip and resolving supported parser plans.".into());
+    app.set_parse_page_viewport_y(0.0);
     append_parse_log(app, &format!("Inspect {}", display_path(&input)));
+    schedule_parse_page_scroll_reset(app);
 
     std::thread::spawn(move || {
         let result = guard_desktop_action("Inspect collection archive", || {
@@ -1590,6 +1811,7 @@ fn start_parse_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Result<
 
     let request = collect_parse_request(app, state)?;
     persist_settings(app, state)?;
+    prepare_detected_plans_for_run(state);
 
     app.set_parse_running(true);
     app.set_parse_progress_value(0.0);
@@ -1601,6 +1823,8 @@ fn start_parse_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Result<
         )
         .into(),
     );
+    refresh_detected_plans(app, state);
+    app.set_parse_page_viewport_y(0.0);
     append_parse_log(
         app,
         &format!(
@@ -1613,12 +1837,14 @@ fn start_parse_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Result<
                 .unwrap_or_else(|| "default output".to_string())
         ),
     );
+    schedule_parse_page_scroll_reset(app);
 
     let project_root = {
         let state_guard = state.lock().expect("desktop state poisoned");
         state_guard.project_root.clone()
     };
     let ui = app.as_weak();
+    let state_for_events = Arc::clone(state);
 
     std::thread::spawn(move || {
         let mut tracker = ProgressTracker::new();
@@ -1638,7 +1864,14 @@ fn start_parse_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Result<
                     project_root: Some(project_root),
                     selected_plan_ids: Some(request.selected_plan_ids.clone()),
                 },
-                |event| dispatch_parse_event(ui_for_events.clone(), &mut tracker, event),
+                |event| {
+                    dispatch_parse_event(
+                        ui_for_events.clone(),
+                        Arc::clone(&state_for_events),
+                        &mut tracker,
+                        event,
+                    )
+                },
             )
         });
 
@@ -1676,10 +1909,12 @@ fn start_parse_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Result<
 
 fn dispatch_parse_event(
     ui: slint::Weak<AppWindow>,
+    state: Arc<Mutex<DesktopState>>,
     tracker: &mut ProgressTracker,
     event: ParseEvent,
 ) {
     tracker.observe(&event);
+    observe_parse_event_for_detected_plans(&state, &event);
 
     let status = event_title(&event);
     let summary = tracker.summary();
@@ -1697,6 +1932,7 @@ fn dispatch_parse_event(
         app.set_parse_status(status.into());
         app.set_parse_summary(summary.into());
         app.set_parse_progress_value(progress);
+        refresh_detected_plans(&app, &state);
         append_parse_log(&app, &log_line);
     });
 }
@@ -2122,6 +2358,14 @@ fn toggle_detected_plan(
             return Ok(());
         };
         plan.selected = !plan.selected;
+        if !plan.selected {
+            plan.active = false;
+            plan.status = "Excluded".to_string();
+            plan.tone = 0;
+        } else if !app.get_parse_running() && !app.get_parse_inspecting() {
+            plan.status = "Selected".to_string();
+            plan.tone = 1;
+        }
     }
 
     refresh_detected_plans(app, state);
@@ -2164,6 +2408,84 @@ fn refresh_detected_plans(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) {
             )
         };
         app.set_parse_summary(summary.into());
+    }
+}
+
+fn prepare_detected_plans_for_run(state: &Arc<Mutex<DesktopState>>) {
+    let mut state_guard = state.lock().expect("desktop state poisoned");
+    for plan in &mut state_guard.detected_plans {
+        plan.active = false;
+        if plan.selected {
+            plan.status = "Queued".to_string();
+            plan.tone = 2;
+        } else {
+            plan.status = "Excluded".to_string();
+            plan.tone = 0;
+        }
+    }
+}
+
+fn observe_parse_event_for_detected_plans(state: &Arc<Mutex<DesktopState>>, event: &ParseEvent) {
+    let mut state_guard = state.lock().expect("desktop state poisoned");
+
+    match event {
+        ParseEvent::PlanStarted {
+            parser, artifact, ..
+        } => {
+            for plan in &mut state_guard.detected_plans {
+                let matches_plan = plan.subtitle == *parser && plan.title == *artifact;
+                plan.active = matches_plan;
+                if matches_plan {
+                    plan.status = "Running".to_string();
+                    plan.tone = 3;
+                }
+            }
+        }
+        ParseEvent::PlanFinished {
+            parser,
+            artifact,
+            status,
+            ..
+        } => {
+            for plan in &mut state_guard.detected_plans {
+                if plan.subtitle == *parser && plan.title == *artifact {
+                    plan.active = false;
+                    plan.status = parse_plan_status_label(status).to_string();
+                    plan.tone = parse_plan_status_tone(status);
+                    break;
+                }
+            }
+        }
+        ParseEvent::Completed { .. } => {
+            for plan in &mut state_guard.detected_plans {
+                plan.active = false;
+            }
+        }
+        _ => {}
+    }
+}
+
+fn parse_plan_status_label(status: &str) -> &str {
+    if status.eq_ignore_ascii_case("ok") {
+        "Complete"
+    } else if status.eq_ignore_ascii_case("error") {
+        "Failed"
+    } else if status.eq_ignore_ascii_case("skipped") {
+        "Skipped"
+    } else {
+        "Finished"
+    }
+}
+
+fn parse_plan_status_tone(status: &str) -> i32 {
+    if status.eq_ignore_ascii_case("ok") {
+        4
+    } else if status.eq_ignore_ascii_case("error") {
+        5
+    } else if status.eq_ignore_ascii_case("skipped") {
+        2
+    } else {
+        1
     }
 }
 
@@ -4652,6 +4974,26 @@ fn schedule_collection_activity_pulse(app: slint::Weak<AppWindow>) {
     });
 }
 
+fn schedule_parse_resource_refresh(
+    app: slint::Weak<AppWindow>,
+    monitor: Arc<Mutex<ParseResourceMonitor>>,
+) {
+    slint::Timer::single_shot(
+        Duration::from_millis(PARSE_RESOURCE_REFRESH_MILLIS),
+        move || {
+            let Some(app) = app.upgrade() else {
+                return;
+            };
+            let telemetry = sample_parse_resource_telemetry(
+                &monitor,
+                app.get_parse_running() || app.get_parse_inspecting(),
+            );
+            apply_parse_resource_telemetry(&app, &telemetry);
+            schedule_parse_resource_refresh(app.as_weak(), monitor);
+        },
+    );
+}
+
 fn schedule_window_chrome_theme_refresh(app: slint::Weak<AppWindow>) {
     #[cfg(windows)]
     schedule_window_chrome_theme_refresh_with_retry(app, 6);
@@ -4741,6 +5083,29 @@ fn browse_for_directory(initial_dir: &Path) -> Result<Option<PathBuf>> {
         Err(anyhow!(
             "native destination folder picker is only implemented on Windows"
         ))
+    }
+}
+
+fn browse_for_file(initial_path: &Path, title: &str, ok_label: &str) -> Result<Option<PathBuf>> {
+    #[cfg(windows)]
+    {
+        let initial_path = initial_path.to_path_buf();
+        let title = title.to_string();
+        let ok_label = ok_label.to_string();
+        let picker_result = std::thread::spawn(move || {
+            browse_for_file_windows(&initial_path, &title, &ok_label)
+                .map_err(|error| error.to_string())
+        })
+        .join()
+        .map_err(|_| anyhow!("file picker thread panicked"))?;
+
+        return picker_result.map_err(|error| anyhow!(error));
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = (initial_path, title, ok_label);
+        Err(anyhow!("native file picker is only implemented on Windows"))
     }
 }
 
@@ -4838,6 +5203,76 @@ fn browse_for_directory_windows(initial_dir: &Path) -> Result<Option<PathBuf>> {
 }
 
 #[cfg(windows)]
+fn browse_for_file_windows(
+    initial_path: &Path,
+    title: &str,
+    ok_label: &str,
+) -> Result<Option<PathBuf>> {
+    unsafe {
+        CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+            .ok()
+            .context("initialize COM for file picker")?;
+    }
+    let _com_apartment = ComApartment;
+
+    let dialog: IFileOpenDialog =
+        unsafe { CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER) }
+            .context("create Windows Shell file picker")?;
+    let options = unsafe { dialog.GetOptions() }.context("read file picker options")?
+        | FOS_FORCEFILESYSTEM
+        | FOS_PATHMUSTEXIST
+        | FOS_FILEMUSTEXIST
+        | FOS_NOCHANGEDIR;
+    unsafe {
+        dialog
+            .SetOptions(options)
+            .context("configure file picker")?;
+        let title = HSTRING::from(title);
+        dialog
+            .SetTitle(PCWSTR(title.as_ptr()))
+            .context("set file picker title")?;
+        let ok_label = HSTRING::from(ok_label);
+        dialog
+            .SetOkButtonLabel(PCWSTR(ok_label.as_ptr()))
+            .context("set file picker action label")?;
+    }
+
+    let initial_dir = if initial_path.is_dir() {
+        initial_path.to_path_buf()
+    } else {
+        initial_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| initial_path.to_path_buf())
+    };
+    if initial_dir.exists() {
+        let initial_path = HSTRING::from(display_path(&initial_dir));
+        if let Ok(initial_item) =
+            unsafe { SHCreateItemFromParsingName::<_, _, IShellItem>(&initial_path, None) }
+        {
+            let _ = unsafe { dialog.SetDefaultFolder(&initial_item) };
+            let _ = unsafe { dialog.SetFolder(&initial_item) };
+        }
+    }
+
+    match unsafe { dialog.Show(None) } {
+        Ok(()) => {
+            let selected_item = unsafe { dialog.GetResult() }.context("read selected file")?;
+            let selected_name = unsafe { selected_item.GetDisplayName(SIGDN_FILESYSPATH) }
+                .context("read selected file path")?;
+            let selected_path =
+                unsafe { selected_name.to_string() }.context("decode selected file path")?;
+            unsafe {
+                CoTaskMemFree(Some(selected_name.as_ptr() as *const core::ffi::c_void));
+            }
+            Ok(Some(PathBuf::from(selected_path)))
+        }
+        Err(error) if is_folder_picker_cancel(&error) => Ok(None),
+        Err(error) => Err(error).context("show file picker"),
+    }
+}
+
+#[cfg(windows)]
 struct ComApartment;
 
 #[cfg(windows)]
@@ -4865,6 +5300,199 @@ fn parse_existing_file(value: String, empty_message: &str) -> Result<PathBuf> {
         ));
     }
     Ok(input)
+}
+
+fn parse_archive_picker_initial_path(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> PathBuf {
+    normalized_path(app.get_parse_archive_path().to_string())
+        .or_else(|| normalized_path(app.get_collection_archive_path().to_string()))
+        .unwrap_or_else(|| {
+            let state_guard = state.lock().expect("desktop state poisoned");
+            default_collection_output_dir(&state_guard.project_root)
+        })
+}
+
+fn parse_output_picker_initial_dir(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> PathBuf {
+    normalized_path(app.get_parse_output_path().to_string())
+        .or_else(|| {
+            normalized_path(app.get_parse_archive_path().to_string()).map(|input| {
+                let state_guard = state.lock().expect("desktop state poisoned");
+                parse_output_path_for_zip(&state_guard.project_root, &input)
+            })
+        })
+        .or_else(|| normalized_path(app.get_collection_archive_path().to_string()))
+        .unwrap_or_else(|| {
+            let state_guard = state.lock().expect("desktop state poisoned");
+            default_parse_output_path(&state_guard.project_root)
+        })
+}
+
+fn apply_parse_resource_telemetry(app: &AppWindow, telemetry: &ParseResourceTelemetry) {
+    app.set_parse_resource_cpu_value(telemetry.cpu_value);
+    app.set_parse_resource_memory_value(telemetry.memory_value);
+    app.set_parse_resource_io_value(telemetry.io_value);
+    app.set_parse_resource_cpu_detail(telemetry.cpu_detail.clone().into());
+    app.set_parse_resource_memory_detail(telemetry.memory_detail.clone().into());
+    app.set_parse_resource_io_detail(telemetry.io_detail.clone().into());
+}
+
+fn sample_parse_resource_telemetry(
+    monitor: &Arc<Mutex<ParseResourceMonitor>>,
+    active: bool,
+) -> ParseResourceTelemetry {
+    sample_parse_resource_telemetry_platform(monitor, active).unwrap_or_else(|| {
+        let mut telemetry = ParseResourceTelemetry::default();
+        if !active {
+            telemetry.cpu_detail = format!("0% host | 0.00 / {:.2} cores", PARSE_RESOURCE_TARGET);
+        }
+        telemetry
+    })
+}
+
+#[cfg(windows)]
+fn sample_parse_resource_telemetry_platform(
+    monitor: &Arc<Mutex<ParseResourceMonitor>>,
+    active: bool,
+) -> Option<ParseResourceTelemetry> {
+    let process = unsafe { GetCurrentProcess() };
+    let captured_at = Instant::now();
+
+    let mut creation = FILETIME::default();
+    let mut exit = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    unsafe { GetProcessTimes(process, &mut creation, &mut exit, &mut kernel, &mut user) }.ok()?;
+    let cpu_time_100ns = filetime_to_u64(kernel).saturating_add(filetime_to_u64(user));
+
+    let mut memory_status = MEMORYSTATUSEX {
+        dwLength: size_of::<MEMORYSTATUSEX>() as u32,
+        ..Default::default()
+    };
+    unsafe { GlobalMemoryStatusEx(&mut memory_status) }.ok()?;
+    let total_physical = memory_status.ullTotalPhys.max(1);
+
+    let mut memory_counters = PROCESS_MEMORY_COUNTERS {
+        cb: size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+        ..Default::default()
+    };
+    unsafe {
+        K32GetProcessMemoryInfo(
+            process,
+            &mut memory_counters,
+            size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+        )
+    }
+    .ok()
+    .ok()?;
+    let working_set = memory_counters.WorkingSetSize as u64;
+
+    let mut io_counters = IO_COUNTERS::default();
+    unsafe { GetProcessIoCounters(process, &mut io_counters) }.ok()?;
+    let io_bytes = io_counters
+        .ReadTransferCount
+        .saturating_add(io_counters.WriteTransferCount);
+
+    let logical_cpus = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1) as f64;
+    let (cpu_fraction, io_bytes_per_second) = {
+        let mut monitor_guard = monitor.lock().expect("parse resource monitor poisoned");
+        let cpu_fraction = monitor_guard
+            .last_snapshot
+            .and_then(|previous| {
+                let elapsed = captured_at
+                    .duration_since(previous.captured_at)
+                    .as_secs_f64();
+                if elapsed <= 0.0 {
+                    return None;
+                }
+                let cpu_delta_seconds =
+                    (cpu_time_100ns.saturating_sub(previous.cpu_time_100ns)) as f64 / 10_000_000.0;
+                Some((cpu_delta_seconds / (elapsed * logical_cpus)).clamp(0.0, 1.0))
+            })
+            .unwrap_or(0.0);
+        let io_bytes_per_second = monitor_guard
+            .last_snapshot
+            .and_then(|previous| {
+                let elapsed = captured_at
+                    .duration_since(previous.captured_at)
+                    .as_secs_f64();
+                if elapsed <= 0.0 {
+                    return None;
+                }
+                Some(io_bytes.saturating_sub(previous.io_bytes) as f64 / elapsed)
+            })
+            .unwrap_or(0.0);
+        monitor_guard.last_snapshot = Some(ProcessResourceSnapshot {
+            captured_at,
+            cpu_time_100ns,
+            io_bytes,
+        });
+        (cpu_fraction, io_bytes_per_second)
+    };
+
+    let memory_fraction = (working_set as f64 / total_physical as f64).clamp(0.0, 1.0);
+    let io_fraction = (io_bytes_per_second / PARSE_IO_VISUAL_CAP_BYTES_PER_SEC).clamp(0.0, 1.0);
+    let cpu_cores = cpu_fraction * logical_cpus;
+
+    Some(ParseResourceTelemetry {
+        cpu_value: cpu_fraction as f32,
+        memory_value: memory_fraction as f32,
+        io_value: io_fraction as f32,
+        cpu_detail: if active {
+            format!(
+                "{:.0}% host | {:.2} / {:.2} cores",
+                cpu_fraction * 100.0,
+                cpu_cores,
+                logical_cpus * f64::from(PARSE_RESOURCE_TARGET)
+            )
+        } else {
+            format!(
+                "{:.0}% host | idle / {:.2} cores",
+                cpu_fraction * 100.0,
+                logical_cpus * f64::from(PARSE_RESOURCE_TARGET)
+            )
+        },
+        memory_detail: format!(
+            "{} working set | {:.0}% host RAM",
+            format_bytes_binary(working_set),
+            memory_fraction * 100.0
+        ),
+        io_detail: format!(
+            "{}/s read+write",
+            format_bytes_binary(io_bytes_per_second as u64)
+        ),
+    })
+}
+
+#[cfg(not(windows))]
+fn sample_parse_resource_telemetry_platform(
+    _monitor: &Arc<Mutex<ParseResourceMonitor>>,
+    _active: bool,
+) -> Option<ParseResourceTelemetry> {
+    None
+}
+
+#[cfg(windows)]
+fn filetime_to_u64(value: FILETIME) -> u64 {
+    ((u64::from(value.dwHighDateTime)) << 32) | u64::from(value.dwLowDateTime)
+}
+
+fn format_bytes_binary(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut value = bytes as f64;
+    let mut unit_index = 0usize;
+    while value >= 1024.0 && unit_index + 1 < UNITS.len() {
+        value /= 1024.0;
+        unit_index += 1;
+    }
+
+    if unit_index == 0 {
+        format!("{bytes} {}", UNITS[unit_index])
+    } else if value >= 100.0 {
+        format!("{value:.0} {}", UNITS[unit_index])
+    } else {
+        format!("{value:.1} {}", UNITS[unit_index])
+    }
 }
 
 fn file_name_or_path(path: &Path) -> String {

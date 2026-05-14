@@ -1,5 +1,5 @@
 import { ThemeTokens } from "../theme.slint";
-import { CardPanel, CodexBand, CollectionActivityRow, GhostButton, HelperText, InfoLine, PrimaryButton, ReadOnlyField, SectionLabel, SelectField } from "../components.slint";
+import { CardPanel, CodexBand, CollectionActivityRow, GhostButton, HelperText, InfoLine, MiniModeButton, PrimaryButton, ReadOnlyField, SectionLabel, SelectField } from "../components.slint";
 import { CollectionActivityDetailItem, CollectionActivityItem, DriveItem } from "../models.slint";
 import { ScrollView } from "std-widgets.slint";
 
@@ -395,6 +395,7 @@ component CollectionActivityDetailPanel inherits Rectangle {
 }
 
 export component CollectionPage inherits Rectangle {
+    in property <int> active-page: 0;
     in-out property <int> collection-profile: 0;
     in property <string> collection-archive-path;
     in property <string> collection-output-filename;
@@ -416,6 +417,7 @@ export component CollectionPage inherits Rectangle {
 
     callback open-settings-requested();
     callback open-about-requested();
+    callback switch-page-requested(int);
     callback persist-settings-requested();
     callback review-scope-requested();
     callback browse-collection-directory-requested();
@@ -431,6 +433,8 @@ export component CollectionPage inherits Rectangle {
     private property <length> page-padding: root.compact-layout ? 12px : 14px;
     private property <length> page-spacing: root.compact-layout ? 6px : 8px;
     private property <length> header-card-height: root.compact-layout ? 102px : 84px;
+    private property <length> header-mode-row-y: root.compact-layout ? 14px : 8px;
+    private property <length> header-action-row-y: (root.header-card-height - 38px) / 2;
     private property <length> setup-card-height: root.compact-layout ? (root.short-layout ? 244px : 320px) : 274px;
     private property <length> tail-height: max(0px, root.height - (root.page-padding * 2) - (root.page-spacing * 3) - root.header-card-height - root.setup-card-height);
     private property <length> status-max-height: root.compact-layout ? 360px : 318px;
@@ -548,7 +552,7 @@ export component CollectionPage inherits Rectangle {
                 SectionLabel {
                     x: root.compact-layout ? 76px : 72px;
                     y: root.compact-layout ? 18px : 12px;
-                    width: max(120px, parent.width - (root.compact-layout ? 290px : 304px));
+                    width: max(120px, ((parent.width - (root.compact-layout ? 152px : 160px)) / 2) - (root.compact-layout ? 88px : 84px));
                     height: 14px;
                     text: root.collection-host-platform == "" ? "Host metadata unavailable" : root.collection-host-platform;
                     color: ThemeTokens.muted;
@@ -557,7 +561,7 @@ export component CollectionPage inherits Rectangle {
                 Text {
                     x: root.compact-layout ? 76px : 72px;
                     y: root.compact-layout ? 30px : 22px;
-                    width: max(140px, parent.width - (root.compact-layout ? 290px : 304px));
+                    width: max(140px, ((parent.width - (root.compact-layout ? 152px : 160px)) / 2) - (root.compact-layout ? 88px : 84px));
                     height: 28px;
                     text: "Holo Forensics";
                     color: ThemeTokens.hero-foreground;
@@ -571,7 +575,7 @@ export component CollectionPage inherits Rectangle {
                 Text {
                     x: root.compact-layout ? 76px : 72px;
                     y: root.compact-layout ? 58px : 48px;
-                    width: max(140px, parent.width - (root.compact-layout ? 290px : 304px));
+                    width: max(140px, ((parent.width - (root.compact-layout ? 152px : 160px)) / 2) - (root.compact-layout ? 88px : 84px));
                     height: 16px;
                     text: root.collection-host-hardware == "" ? "CPU and memory details unavailable." : root.collection-host-hardware;
                     color: ThemeTokens.muted;
@@ -583,8 +587,30 @@ export component CollectionPage inherits Rectangle {
                 }
 
                 HorizontalLayout {
+                    x: (parent.width - (root.compact-layout ? 152px : 160px)) / 2;
+                    y: root.header-mode-row-y;
+                    width: root.compact-layout ? 152px : 160px;
+                    height: 28px;
+                    spacing: 8px;
+
+                    MiniModeButton {
+                        width: 76px;
+                        label: "Collect";
+                        active: root.active-page == 0;
+                        clicked => { root.switch-page-requested(0); }
+                    }
+
+                    MiniModeButton {
+                        width: 76px;
+                        label: "Parse";
+                        active: root.active-page == 1;
+                        clicked => { root.switch-page-requested(1); }
+                    }
+                }
+
+                HorizontalLayout {
                     x: parent.width - (root.compact-layout ? 204px : 222px);
-                    y: root.compact-layout ? 31px : 23px;
+                    y: root.header-action-row-y;
                     width: root.compact-layout ? 188px : 206px;
                     height: 38px;
                     spacing: 8px;

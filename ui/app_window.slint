@@ -1,6 +1,7 @@
 import { ThemeTokens } from "theme.slint";
 import { ParseArtifactItem, CollectionSurfaceItem, CollectionActivityDetailItem, CollectionActivityItem, DriveItem, ShadowCopyRecoveryItem } from "models.slint";
 import { CollectionPage } from "pages/collection_page.slint";
+import { ParsePage } from "pages/parse_page.slint";
 import { AboutDialog } from "dialogs/about_dialog.slint";
 import { EvidenceScopeDialog } from "dialogs/evidence_scope_dialog.slint";
 import { ErrorDialog } from "dialogs/error_dialog.slint";
@@ -17,7 +18,7 @@ export component AppWindow inherits Window {
     min-width: 620px;
     min-height: 540px;
     preferred-width: 1000px;
-    preferred-height: 720px;
+    preferred-height: 820px;
     background: ThemeTokens.base;
     default-font-family: "Figtree";
     default-font-size: 14px;
@@ -66,6 +67,7 @@ export component AppWindow inherits Window {
     in-out property <string> selected-collection-targets;
     in-out property <string> selected-collection-note;
     in-out property <bool> selected-collection-live: false;
+    in-out property <int> active-page: 0;
 
     in-out property <string> parse-archive-path;
     in-out property <string> parse-output-path;
@@ -76,6 +78,13 @@ export component AppWindow inherits Window {
     in-out property <string> parse-status;
     in-out property <string> parse-summary;
     in-out property <string> parse-log;
+    in-out property <float> parse-resource-cpu-value: 0;
+    in-out property <float> parse-resource-memory-value: 0;
+    in-out property <float> parse-resource-io-value: 0;
+    in-out property <string> parse-resource-cpu-detail;
+    in-out property <string> parse-resource-memory-detail;
+    in-out property <string> parse-resource-io-detail;
+    in-out property <length> parse-page-viewport-y: 0px;
     in property <[ParseArtifactItem]> detected-artifacts;
 
     in-out property <string> elasticsearch-url;
@@ -86,6 +95,8 @@ export component AppWindow inherits Window {
 
     callback persist-settings-requested();
     callback browse-collection-directory-requested();
+    callback browse-parse-archive-requested();
+    callback browse-parse-output-requested();
     callback select-drive-requested(int);
     callback inspect-archive-requested();
     callback select-collection-requested(int);
@@ -104,9 +115,11 @@ export component AppWindow inherits Window {
         height: root.height;
         background: ThemeTokens.base;
 
-        CollectionPage {
+        if root.active-page == 0 : CollectionPage {
+            y: 0px;
             width: parent.width;
             height: parent.height;
+            active-page: root.active-page;
             collection-profile <=> root.collection-profile;
             collection-archive-path: root.collection-archive-path;
             collection-output-filename: root.collection-output-filename;
@@ -128,12 +141,57 @@ export component AppWindow inherits Window {
 
             open-settings-requested => { root.settings-open = true; }
             open-about-requested => { root.about-open = true; }
+            switch-page-requested(index) => {
+                if index == 1 {
+                    root.parse-page-viewport-y = 0px;
+                }
+                root.active-page = index;
+            }
             persist-settings-requested => { root.persist-settings-requested(); }
             review-scope-requested => { root.evidence-scope-open = true; }
             browse-collection-directory-requested => { root.browse-collection-directory-requested(); }
             select-drive-requested(index) => { root.select-drive-requested(index); }
             run-collection-requested => { root.run-collection-requested(); }
             select-collection-activity-requested(index) => { root.select-collection-activity-requested(index); }
+        }
+
+        if root.active-page == 1 : ParsePage {
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            active-page: root.active-page;
+            collection-host-platform: root.collection-host-platform;
+            collection-host-hardware: root.collection-host-hardware;
+            parse-archive-path: root.parse-archive-path;
+            parse-output-path: root.parse-output-path;
+            parse-inspecting: root.parse-inspecting;
+            parse-running: root.parse-running;
+            parse-progress-value: root.parse-progress-value;
+            parse-status: root.parse-status;
+            parse-summary: root.parse-summary;
+            parse-log: root.parse-log;
+            detected-artifacts: root.detected-artifacts;
+            parse-resource-cpu-value: root.parse-resource-cpu-value;
+            parse-resource-memory-value: root.parse-resource-memory-value;
+            parse-resource-io-value: root.parse-resource-io-value;
+            parse-resource-cpu-detail: root.parse-resource-cpu-detail;
+            parse-resource-memory-detail: root.parse-resource-memory-detail;
+            parse-resource-io-detail: root.parse-resource-io-detail;
+            page-viewport-y <=> root.parse-page-viewport-y;
+
+            open-settings-requested => { root.settings-open = true; }
+            open-about-requested => { root.about-open = true; }
+            switch-page-requested(index) => {
+                if index == 1 {
+                    root.parse-page-viewport-y = 0px;
+                }
+                root.active-page = index;
+            }
+            browse-parse-archive-requested => { root.browse-parse-archive-requested(); }
+            browse-parse-output-requested => { root.browse-parse-output-requested(); }
+            inspect-archive-requested => { root.inspect-archive-requested(); }
+            toggle-detected-artifact(index) => { root.toggle-detected-artifact(index); }
+            run-parse-requested => { root.run-parse-requested(); }
         }
 
         if root.evidence-scope-open : EvidenceScopeDialog {
