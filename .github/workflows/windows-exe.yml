@@ -38,14 +38,6 @@ jobs:
         shell: cmd
         run: rustup component add rustfmt clippy
 
-      - name: Restore Cargo target cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
-        with:
-          path: target
-          key: windows-quality-target-${{ runner.os }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            windows-quality-target-${{ runner.os }}-
-
       - name: Check formatting
         run: cargo fmt --check
 
@@ -124,14 +116,6 @@ jobs:
           rustc --version
           where cl
           where rc
-
-      - name: Restore Cargo target cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
-        with:
-          path: target
-          key: windows-target-${{ runner.os }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            windows-target-${{ runner.os }}-
 
       - name: Build release binary
         shell: cmd
