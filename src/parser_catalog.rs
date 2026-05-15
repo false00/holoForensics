@@ -25,6 +25,7 @@ pub fn enabled_parser_families() -> Vec<ParserFamily> {
         ),
         enabled_family("windows_event_logs", "windows_evtx_collection"),
         enabled_family("windows_prefetch", "windows_prefetch_collection"),
+        enabled_family("windows_mplogs", "windows_mplogs_collection"),
         enabled_family("windows_bits", "windows_bits_collection"),
         enabled_family("windows_search", "windows_search_collection"),
         enabled_family("windows_outlook", "windows_outlook_collection"),
@@ -119,6 +120,7 @@ mod tests {
                 "windows_browser_history",
                 "windows_event_logs",
                 "windows_prefetch",
+                "windows_mplogs",
                 "windows_bits",
                 "windows_search",
                 "windows_outlook",
@@ -158,6 +160,7 @@ mod tests {
                 "windows_browser_artifacts_collection",
                 "windows_evtx_collection",
                 "windows_prefetch_collection",
+                "windows_mplogs_collection",
                 "windows_bits_collection",
                 "windows_search_collection",
                 "windows_outlook_collection",
@@ -191,5 +194,14 @@ mod tests {
     fn enabled_parser_families_reference_registered_collections() {
         let families = enabled_parser_families();
         validate_enabled_parser_families(&families).unwrap();
+    }
+
+    #[test]
+    fn enabled_parser_families_include_mplogs() {
+        let families = enabled_parser_families();
+
+        assert!(families.iter().any(|family| {
+            family.name == "windows_mplogs" && family.collection == "windows_mplogs_collection"
+        }));
     }
 }

@@ -10,6 +10,7 @@ This index tracks every active parser family shipped by the current Rust runtime
 | `windows_browser_history` | `windows_browser_artifacts_collection` | `src/parsers/windows/browser_history.rs` | [windows/browser_history](windows/browser_history.md) | Windows Chrome, Edge, and Firefox history |
 | `windows_event_logs` | `windows_evtx_collection` | `src/parsers/windows/artemis.rs` | [windows/event_logs](windows/event_logs.md) | Windows EVTX event logs via the vendored Artemis adapter |
 | `windows_prefetch` | `windows_prefetch_collection` | `src/parsers/windows/artemis.rs` | [windows/prefetch](windows/prefetch.md) | Windows Prefetch `.pf` files via the vendored Artemis adapter |
+| `windows_mplogs` | `windows_mplogs_collection` | `src/parsers/windows/mplogs.rs` | [windows/mplogs](windows/mplogs.md) | Microsoft Defender Support `MPLog*.log` text parsing with raw-line preservation |
 | `windows_bits` | `windows_bits_collection` | `src/parsers/windows/artemis.rs` | [windows/bits](windows/bits.md) | Windows BITS job databases from supplied evidence packages |
 | `windows_search` | `windows_search_collection` | `src/parsers/windows/artemis.rs` | [windows/search](windows/search.md) | Windows Search databases from supplied evidence packages |
 | `windows_outlook` | `windows_outlook_collection` | `src/parsers/windows/artemis.rs` | [windows/outlook](windows/outlook.md) | Outlook `.ost` and `.pst` stores from supplied evidence packages |

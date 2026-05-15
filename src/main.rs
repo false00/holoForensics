@@ -4,8 +4,8 @@ use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 
 use holo_forensics::app::{self, ParseCli, ParseRunOptions};
 use holo_forensics::collections::windows::{
-    browser_artifacts, evtx, indx, jump_lists, lnk, logfile, mft, powershell_activity, prefetch,
-    recycle_bin, registry, scheduled_tasks, srum, usn_journal, wmi_repository,
+    browser_artifacts, evtx, indx, jump_lists, lnk, logfile, mft, mplogs, powershell_activity,
+    prefetch, recycle_bin, registry, scheduled_tasks, srum, usn_journal, wmi_repository,
 };
 use holo_forensics::desktop::{DesktopLaunchOptions, DesktopScreenshotState, DesktopThemeOverride};
 
@@ -92,6 +92,9 @@ enum Command {
     #[command(name = "collect-prefetch")]
     CollectPrefetch(prefetch::PrefetchCollectCli),
 
+    #[command(name = "collect-mplogs")]
+    CollectMpLogs(mplogs::MpLogsCollectCli),
+
     #[command(name = "collect-scheduled-tasks")]
     CollectScheduledTasks(scheduled_tasks::ScheduledTasksCollectCli),
 
@@ -153,6 +156,7 @@ fn main() {
         Some(Command::CollectIndx(args)) => indx::run(&args),
         Some(Command::CollectSrum(args)) => srum::run(&args),
         Some(Command::CollectPrefetch(args)) => prefetch::run(&args),
+        Some(Command::CollectMpLogs(args)) => mplogs::run(&args),
         Some(Command::CollectScheduledTasks(args)) => scheduled_tasks::run(&args),
         Some(Command::CollectWmiRepository(args)) => wmi_repository::run(&args),
         Some(Command::CollectPowerShellActivity(args)) => powershell_activity::run(&args),
@@ -456,6 +460,28 @@ mod tests {
                 assert!(args.manifest.is_none());
             }
             _ => panic!("collect-prefetch was not parsed"),
+        }
+    }
+
+    #[test]
+    fn parses_collect_mplogs_subcommand() {
+        let cli = Cli::try_parse_from([
+            "holo-forensics",
+            "collect-mplogs",
+            "--volume",
+            "C:",
+            "--out-dir",
+            r"C:\temp\mplogs",
+        ])
+        .expect("collect-mplogs should parse");
+
+        match cli.command {
+            Some(Command::CollectMpLogs(args)) => {
+                assert_eq!(args.volume, "C:");
+                assert_eq!(args.out_dir, PathBuf::from(r"C:\temp\mplogs"));
+                assert!(args.manifest.is_none());
+            }
+            _ => panic!("collect-mplogs was not parsed"),
         }
     }
 

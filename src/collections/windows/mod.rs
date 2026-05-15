@@ -5,6 +5,7 @@ pub mod jump_lists;
 pub mod lnk;
 pub mod logfile;
 pub mod mft;
+pub mod mplogs;
 pub mod powershell_activity;
 pub mod prefetch;
 pub mod recycle_bin;

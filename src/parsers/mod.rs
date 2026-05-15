@@ -18,6 +18,7 @@ pub fn build_plans(root: &Path, family: &ParserFamily) -> Result<Option<Vec<Plan
         "macos_quarantine_events" => macos_artifacts::build_quarantine_events(root, family)?,
         "windows_event_logs" => windows::artemis::build_event_logs(root, family)?,
         "windows_prefetch" => windows::artemis::build_prefetch(root, family)?,
+        "windows_mplogs" => windows::mplogs::build(root, family)?,
         "windows_bits" => windows::artemis::build_bits(root, family)?,
         "windows_search" => windows::artemis::build_search(root, family)?,
         "windows_outlook" => windows::artemis::build_outlook(root, family)?,
@@ -70,6 +71,7 @@ pub fn collect_local(plan: &Plan, output_dir: &Path) -> Result<(PathBuf, PathBuf
             windows::artemis::collect_event_logs(plan, output_dir)
         }
         Some("windows.artemis.prefetch") => windows::artemis::collect_prefetch(plan, output_dir),
+        Some("windows.mplogs") => windows::mplogs::collect(plan, output_dir),
         Some("windows.artemis.bits") => windows::artemis::collect_bits(plan, output_dir),
         Some("windows.artemis.search") => windows::artemis::collect_search(plan, output_dir),
         Some("windows.artemis.outlook") => windows::artemis::collect_outlook(plan, output_dir),

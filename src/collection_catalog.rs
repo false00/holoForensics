@@ -42,6 +42,12 @@ pub fn enabled_collection_definitions() -> Vec<CollectionDefinition> {
             "Windows Prefetch",
             Some("src/collections/windows/prefetch.rs"),
         ),
+        collection(
+            "windows_mplogs_collection",
+            "windows",
+            "Windows Microsoft Protection Logs",
+            Some("src/collections/windows/mplogs.rs"),
+        ),
         collection("windows_bits_collection", "windows", "Windows BITS", None),
         collection(
             "windows_search_collection",
@@ -222,6 +228,15 @@ mod tests {
         assert!(collections.iter().any(|definition| {
             definition.name == "windows_evtx_collection"
                 && definition.implementation_path == Some("src/collections/windows/evtx.rs")
+        }));
+    }
+
+    #[test]
+    fn enabled_collections_include_mplogs_definition() {
+        let collections = enabled_collection_definitions();
+        assert!(collections.iter().any(|definition| {
+            definition.name == "windows_mplogs_collection"
+                && definition.implementation_path == Some("src/collections/windows/mplogs.rs")
         }));
     }
 

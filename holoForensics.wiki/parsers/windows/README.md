@@ -9,6 +9,7 @@ Most of the families below are routed through the shared adapter in `src/parsers
 | `windows_browser_history` | `windows_browser_artifacts_collection` | `src/parsers/windows/browser_history.rs` | [browser_history](browser_history.md) | Windows Chrome, Edge, and Firefox history |
 | `windows_event_logs` | `windows_evtx_collection` | `src/parsers/windows/artemis.rs` | [event_logs](event_logs.md) | Windows EVTX event logs via the vendored Artemis adapter |
 | `windows_prefetch` | `windows_prefetch_collection` | `src/parsers/windows/artemis.rs` | [prefetch](prefetch.md) | Windows Prefetch `.pf` files via the vendored Artemis adapter |
+| `windows_mplogs` | `windows_mplogs_collection` | `src/parsers/windows/mplogs.rs` | [mplogs](mplogs.md) | Microsoft Defender Support `MPLog*.log` text parsing with raw-line preservation |
 | `windows_bits` | `windows_bits_collection` | `src/parsers/windows/artemis.rs` | [bits](bits.md) | Windows BITS job databases from supplied evidence packages |
 | `windows_search` | `windows_search_collection` | `src/parsers/windows/artemis.rs` | [search](search.md) | Windows Search databases from supplied evidence packages |
 | `windows_outlook` | `windows_outlook_collection` | `src/parsers/windows/artemis.rs` | [outlook](outlook.md) | Outlook `.ost` and `.pst` stores from supplied evidence packages |

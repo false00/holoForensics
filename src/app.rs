@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::collection;
 use crate::collection_metadata;
 use crate::collections::windows::{
-    browser_artifacts, evtx, indx, jump_lists, lnk, logfile, mft, powershell_activity, prefetch,
-    recycle_bin, registry, scheduled_tasks, srum, usn_journal, vss, wmi_repository,
+    browser_artifacts, evtx, indx, jump_lists, lnk, logfile, mft, mplogs, powershell_activity,
+    prefetch, recycle_bin, registry, scheduled_tasks, srum, usn_journal, vss, wmi_repository,
 };
 use crate::manifest::{Manifest, ManifestEntry, write_manifest};
 use crate::opensearch::{
@@ -96,6 +96,14 @@ pub struct SrumCollectionArchiveRequest {
 
 #[derive(Debug, Clone)]
 pub struct PrefetchCollectionArchiveRequest {
+    pub volumes: Vec<String>,
+    pub output_zip: PathBuf,
+    pub staging_root: Option<PathBuf>,
+    pub elevate: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct MpLogsCollectionArchiveRequest {
     pub volumes: Vec<String>,
     pub output_zip: PathBuf,
     pub staging_root: Option<PathBuf>,
@@ -217,6 +225,11 @@ pub struct PrefetchCollectionOptions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MpLogsCollectionOptions {
+    pub elevate: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScheduledTasksCollectionOptions {
     pub elevate: bool,
 }
@@ -286,6 +299,8 @@ pub struct CollectionArchiveRequest {
     pub srum: Option<SrumCollectionOptions>,
     #[serde(default)]
     pub prefetch: Option<PrefetchCollectionOptions>,
+    #[serde(default)]
+    pub mplogs: Option<MpLogsCollectionOptions>,
     #[serde(default)]
     pub scheduled_tasks: Option<ScheduledTasksCollectionOptions>,
     #[serde(default)]
@@ -628,6 +643,17 @@ fn collect_collection_archive_direct(
                         &mut staged_paths,
                     )?;
                 }
+                if let Some(mplogs_options) = request.mplogs.as_ref() {
+                    stage_mplogs_collection(
+                        normalized_volume,
+                        &staging_dir,
+                        mplogs_options,
+                        Some(&shadow_copy),
+                        reporter,
+                        &mut archive_entries,
+                        &mut staged_paths,
+                    )?;
+                }
                 if let Some(scheduled_tasks_options) = request.scheduled_tasks.as_ref() {
                     stage_scheduled_tasks_collection(
                         normalized_volume,
@@ -830,6 +856,17 @@ fn collect_collection_archive_direct(
                 &mut staged_paths,
             )?;
         }
+        if let Some(mplogs_options) = request.mplogs.as_ref() {
+            stage_mplogs_collection(
+                normalized_volume,
+                &staging_dir,
+                mplogs_options,
+                None,
+                reporter,
+                &mut archive_entries,
+                &mut staged_paths,
+            )?;
+        }
         if let Some(scheduled_tasks_options) = request.scheduled_tasks.as_ref() {
             stage_scheduled_tasks_collection(
                 normalized_volume,
@@ -1010,6 +1047,7 @@ pub fn collect_usn_archive(
         evtx: None,
         srum: None,
         prefetch: None,
+        mplogs: None,
         scheduled_tasks: None,
         powershell_activity: None,
         browser_artifacts: None,
@@ -1038,6 +1076,7 @@ pub fn collect_registry_archive(
         evtx: None,
         srum: None,
         prefetch: None,
+        mplogs: None,
         scheduled_tasks: None,
         powershell_activity: None,
         browser_artifacts: None,
@@ -1065,6 +1104,7 @@ pub fn collect_evtx_archive(
         }),
         srum: None,
         prefetch: None,
+        mplogs: None,
         scheduled_tasks: None,
         powershell_activity: None,
         browser_artifacts: None,
@@ -1090,6 +1130,7 @@ pub fn collect_mft_archive(
         evtx: None,
         srum: None,
         prefetch: None,
+        mplogs: None,
         scheduled_tasks: None,
         powershell_activity: None,
         browser_artifacts: None,
@@ -1118,6 +1159,7 @@ pub fn collect_logfile_archive(
         evtx: None,
         srum: None,
         prefetch: None,
+        mplogs: None,
         scheduled_tasks: None,
         powershell_activity: None,
         browser_artifacts: None,
@@ -1146,6 +1188,7 @@ pub fn collect_indx_archive(
         evtx: None,
         srum: None,
         prefetch: None,
+        mplogs: None,
         scheduled_tasks: None,
         powershell_activity: None,
         browser_artifacts: None,
@@ -1178,6 +1221,7 @@ pub fn collect_srum_archive(
             elevate: request.elevate,
         }),
         prefetch: None,
+        mplogs: None,
         scheduled_tasks: None,
         powershell_activity: None,
         browser_artifacts: None,
@@ -1205,6 +1249,35 @@ pub fn collect_prefetch_archive(
         prefetch: Some(PrefetchCollectionOptions {
             elevate: request.elevate,
         }),
+        mplogs: None,
+        scheduled_tasks: None,
+        powershell_activity: None,
+        browser_artifacts: None,
+        jump_lists: None,
+        lnk: None,
+        recycle_bin: None,
+        mft: None,
+        logfile: None,
+        indx: None,
+        wmi_repository: None,
+    })
+}
+
+pub fn collect_mplogs_archive(
+    request: &MpLogsCollectionArchiveRequest,
+) -> Result<CollectionArchiveSummary> {
+    collect_collection_archive(&CollectionArchiveRequest {
+        volumes: request.volumes.clone(),
+        output_zip: request.output_zip.clone(),
+        staging_root: request.staging_root.clone(),
+        usn: None,
+        registry: None,
+        evtx: None,
+        srum: None,
+        prefetch: None,
+        mplogs: Some(MpLogsCollectionOptions {
+            elevate: request.elevate,
+        }),
         scheduled_tasks: None,
         powershell_activity: None,
         browser_artifacts: None,
@@ -1230,6 +1303,7 @@ pub fn collect_scheduled_tasks_archive(
         evtx: None,
         srum: None,
         prefetch: None,
+        mplogs: None,
         scheduled_tasks: Some(ScheduledTasksCollectionOptions {
             elevate: request.elevate,
         }),
@@ -1257,6 +1331,7 @@ pub fn collect_wmi_repository_archive(
         evtx: None,
         srum: None,
         prefetch: None,
+        mplogs: None,
         scheduled_tasks: None,
         powershell_activity: None,
         browser_artifacts: None,
@@ -1284,6 +1359,7 @@ pub fn collect_powershell_activity_archive(
         evtx: None,
         srum: None,
         prefetch: None,
+        mplogs: None,
         scheduled_tasks: None,
         powershell_activity: Some(PowerShellActivityCollectionOptions {
             elevate: request.elevate,
@@ -1311,6 +1387,7 @@ pub fn collect_browser_artifacts_archive(
         evtx: None,
         srum: None,
         prefetch: None,
+        mplogs: None,
         scheduled_tasks: None,
         powershell_activity: None,
         browser_artifacts: Some(BrowserArtifactsCollectionOptions {
@@ -1338,6 +1415,7 @@ pub fn collect_jump_lists_archive(
         evtx: None,
         srum: None,
         prefetch: None,
+        mplogs: None,
         scheduled_tasks: None,
         powershell_activity: None,
         browser_artifacts: None,
@@ -1365,6 +1443,7 @@ pub fn collect_lnk_archive(
         evtx: None,
         srum: None,
         prefetch: None,
+        mplogs: None,
         scheduled_tasks: None,
         powershell_activity: None,
         browser_artifacts: None,
@@ -1392,6 +1471,7 @@ pub fn collect_recycle_bin_archive(
         evtx: None,
         srum: None,
         prefetch: None,
+        mplogs: None,
         scheduled_tasks: None,
         powershell_activity: None,
         browser_artifacts: None,
@@ -1878,6 +1958,11 @@ fn collection_archive_requests_elevation(request: &CollectionArchiveRequest) -> 
             .map(|options| options.elevate)
             .unwrap_or(false)
         || request
+            .mplogs
+            .as_ref()
+            .map(|options| options.elevate)
+            .unwrap_or(false)
+        || request
             .scheduled_tasks
             .as_ref()
             .map(|options| options.elevate)
@@ -1948,6 +2033,7 @@ fn should_share_vss_snapshot(request: &CollectionArchiveRequest) -> bool {
     let evtx_uses_vss = request.evtx.is_some();
     let srum_uses_vss = request.srum.is_some();
     let prefetch_uses_vss = request.prefetch.is_some();
+    let mplogs_uses_vss = request.mplogs.is_some();
     let scheduled_tasks_uses_vss = request.scheduled_tasks.is_some();
     let wmi_repository_uses_vss = request.wmi_repository.is_some();
     let powershell_activity_uses_vss = request.powershell_activity.is_some();
@@ -1976,6 +2062,7 @@ fn should_share_vss_snapshot(request: &CollectionArchiveRequest) -> bool {
         evtx_uses_vss,
         srum_uses_vss,
         prefetch_uses_vss,
+        mplogs_uses_vss,
         scheduled_tasks_uses_vss,
         wmi_repository_uses_vss,
         powershell_activity_uses_vss,
@@ -2327,6 +2414,75 @@ fn stage_prefetch_collection(
         volume: normalized_volume.to_string(),
         progress_value: 1.0,
         detail: format!("Collected and staged Prefetch files from {normalized_volume}."),
+        progress_text: format!(
+            "{} copied, {} failed",
+            summary.file_records.len(),
+            summary.failures.len()
+        ),
+        staged_paths: staged_count,
+        artifact_paths,
+    });
+    Ok(())
+}
+
+fn stage_mplogs_collection(
+    normalized_volume: &str,
+    staging_dir: &Path,
+    options: &MpLogsCollectionOptions,
+    shared_shadow_copy: Option<&vss::ShadowCopy>,
+    reporter: &mut dyn FnMut(CollectionEvent),
+    archive_entries: &mut Vec<collection::ArchiveEntry>,
+    staged_paths: &mut Vec<PathBuf>,
+) -> Result<()> {
+    reporter(CollectionEvent::CollectorStarted {
+        collection_title: "Microsoft Protection Logs".to_string(),
+        volume: normalized_volume.to_string(),
+        progress_value: 0.02,
+        detail: format!("Preparing Microsoft Protection Logs collection on {normalized_volume}."),
+        progress_text: "Starting".to_string(),
+    });
+    let mut progress_reporter = |progress: mplogs::MpLogsProgress| {
+        reporter(CollectionEvent::CollectorProgress {
+            collection_title: "Microsoft Protection Logs".to_string(),
+            volume: normalized_volume.to_string(),
+            progress_value: progress.progress_value,
+            detail: progress.detail,
+            progress_text: progress.progress_text,
+        });
+    };
+    let request = mplogs::MpLogsCollectRequest {
+        volume: normalized_volume.to_string(),
+        out_dir: staging_dir.to_path_buf(),
+        manifest: Some(mplogs::default_manifest_path(
+            staging_dir,
+            normalized_volume,
+        )?),
+        collection_log: Some(mplogs::default_collection_log_path(
+            staging_dir,
+            normalized_volume,
+        )?),
+        diagnostic_log: None,
+        elevate: options.elevate,
+    };
+    let summary = if let Some(shadow_copy) = shared_shadow_copy {
+        mplogs::collect_with_progress_using_shadow_copy(
+            &request,
+            shadow_copy,
+            &mut progress_reporter,
+        )?
+    } else {
+        mplogs::collect_with_progress(&request, &mut progress_reporter)?
+    };
+
+    add_staged_paths_as_archive_entries(staging_dir, &summary.staged_paths, archive_entries)?;
+    let staged_count = summary.staged_paths.len();
+    let artifact_paths = mplogs_collection_artifact_paths(&summary);
+    staged_paths.extend(summary.staged_paths);
+    reporter(CollectionEvent::CollectorFinished {
+        collection_title: "Microsoft Protection Logs".to_string(),
+        volume: normalized_volume.to_string(),
+        progress_value: 1.0,
+        detail: format!("Collected and staged Microsoft Protection Logs from {normalized_volume}."),
         progress_text: format!(
             "{} copied, {} failed",
             summary.file_records.len(),
@@ -3176,6 +3332,24 @@ fn prefetch_collection_artifact_paths(summary: &prefetch::PrefetchCollectSummary
     paths
 }
 
+fn mplogs_collection_artifact_paths(summary: &mplogs::MpLogsCollectSummary) -> Vec<String> {
+    let mut paths = summary
+        .file_records
+        .iter()
+        .map(|record| record.archive_path.clone())
+        .collect::<Vec<_>>();
+    if let Ok(relative_manifest) = summary.manifest_path.strip_prefix(&summary.output_root) {
+        paths.push(normalize_archive_path_string(relative_manifest));
+    }
+    if let Ok(relative_log) = summary
+        .collection_log_path
+        .strip_prefix(&summary.output_root)
+    {
+        paths.push(normalize_archive_path_string(relative_log));
+    }
+    paths
+}
+
 fn scheduled_tasks_collection_artifact_paths(
     summary: &scheduled_tasks::ScheduledTasksCollectSummary,
 ) -> Vec<String> {
@@ -3556,6 +3730,7 @@ fn selected_runtime_collector_count(request: &CollectionArchiveRequest) -> usize
         + usize::from(request.evtx.is_some())
         + usize::from(request.srum.is_some())
         + usize::from(request.prefetch.is_some())
+        + usize::from(request.mplogs.is_some())
         + usize::from(request.scheduled_tasks.is_some())
         + usize::from(request.wmi_repository.is_some())
         + usize::from(request.powershell_activity.is_some())
@@ -3726,11 +3901,12 @@ mod tests {
     use super::{
         BrowserArtifactsCollectionOptions, CollectionArchiveRequest, EvtxCollectionOptions,
         IndxCollectionOptions, JumpListsCollectionOptions, LnkCollectionOptions,
-        LogFileCollectionOptions, MftCollectionOptions, PowerShellActivityCollectionOptions,
-        PrefetchCollectionOptions, RegistryCollectionOptions, ScheduledTasksCollectionOptions,
-        SrumCollectionOptions, UsnCollectionOptions, WmiRepositoryCollectionOptions,
-        add_staged_paths_as_archive_entries, collection_archive_requests_elevation,
-        selected_runtime_collector_count, should_share_vss_snapshot, usn_archive_raw_path,
+        LogFileCollectionOptions, MftCollectionOptions, MpLogsCollectionOptions,
+        PowerShellActivityCollectionOptions, PrefetchCollectionOptions, RegistryCollectionOptions,
+        ScheduledTasksCollectionOptions, SrumCollectionOptions, UsnCollectionOptions,
+        WmiRepositoryCollectionOptions, add_staged_paths_as_archive_entries,
+        collection_archive_requests_elevation, selected_runtime_collector_count,
+        should_share_vss_snapshot, usn_archive_raw_path,
     };
     use crate::collection;
     use crate::collection_metadata;
@@ -3828,6 +4004,7 @@ mod tests {
             evtx: None,
             srum: None,
             prefetch: None,
+            mplogs: None,
             scheduled_tasks: None,
             powershell_activity: None,
             browser_artifacts: None,
@@ -3862,6 +4039,7 @@ mod tests {
             evtx: None,
             srum: None,
             prefetch: None,
+            mplogs: None,
             scheduled_tasks: None,
             powershell_activity: None,
             browser_artifacts: None,
@@ -3896,6 +4074,7 @@ mod tests {
             evtx: None,
             srum: None,
             prefetch: None,
+            mplogs: None,
             scheduled_tasks: None,
             powershell_activity: None,
             browser_artifacts: None,
@@ -3925,6 +4104,7 @@ mod tests {
             evtx: Some(EvtxCollectionOptions { elevate: false }),
             srum: None,
             prefetch: None,
+            mplogs: None,
             scheduled_tasks: None,
             powershell_activity: None,
             browser_artifacts: None,
@@ -3951,6 +4131,7 @@ mod tests {
             evtx: Some(EvtxCollectionOptions { elevate: false }),
             srum: None,
             prefetch: None,
+            mplogs: None,
             scheduled_tasks: None,
             powershell_activity: None,
             browser_artifacts: None,
@@ -3980,6 +4161,7 @@ mod tests {
             evtx: None,
             srum: None,
             prefetch: None,
+            mplogs: None,
             scheduled_tasks: None,
             powershell_activity: None,
             browser_artifacts: None,
@@ -4012,6 +4194,7 @@ mod tests {
             evtx: None,
             srum: None,
             prefetch: None,
+            mplogs: None,
             scheduled_tasks: None,
             powershell_activity: None,
             browser_artifacts: None,
@@ -4049,6 +4232,7 @@ mod tests {
             evtx: None,
             srum: Some(SrumCollectionOptions { elevate: false }),
             prefetch: None,
+            mplogs: None,
             scheduled_tasks: None,
             powershell_activity: None,
             browser_artifacts: None,
@@ -4075,6 +4259,7 @@ mod tests {
             evtx: None,
             srum: None,
             prefetch: Some(PrefetchCollectionOptions { elevate: false }),
+            mplogs: None,
             scheduled_tasks: None,
             powershell_activity: Some(PowerShellActivityCollectionOptions { elevate: false }),
             browser_artifacts: None,
@@ -4104,6 +4289,7 @@ mod tests {
             evtx: None,
             srum: None,
             prefetch: Some(PrefetchCollectionOptions { elevate: false }),
+            mplogs: None,
             scheduled_tasks: None,
             powershell_activity: None,
             browser_artifacts: None,
@@ -4133,6 +4319,7 @@ mod tests {
             evtx: None,
             srum: None,
             prefetch: None,
+            mplogs: None,
             scheduled_tasks: Some(ScheduledTasksCollectionOptions { elevate: false }),
             powershell_activity: None,
             browser_artifacts: None,
@@ -4159,6 +4346,7 @@ mod tests {
             evtx: None,
             srum: None,
             prefetch: Some(PrefetchCollectionOptions { elevate: false }),
+            mplogs: None,
             scheduled_tasks: None,
             powershell_activity: None,
             browser_artifacts: None,
@@ -4188,6 +4376,7 @@ mod tests {
             evtx: None,
             srum: None,
             prefetch: None,
+            mplogs: None,
             scheduled_tasks: None,
             powershell_activity: None,
             browser_artifacts: Some(BrowserArtifactsCollectionOptions { elevate: false }),
@@ -4217,6 +4406,7 @@ mod tests {
             evtx: None,
             srum: None,
             prefetch: None,
+            mplogs: None,
             scheduled_tasks: None,
             powershell_activity: None,
             browser_artifacts: None,
@@ -4246,6 +4436,7 @@ mod tests {
             evtx: None,
             srum: None,
             prefetch: None,
+            mplogs: None,
             scheduled_tasks: None,
             powershell_activity: None,
             browser_artifacts: None,
@@ -4280,6 +4471,7 @@ mod tests {
             evtx: None,
             srum: None,
             prefetch: None,
+            mplogs: None,
             scheduled_tasks: None,
             powershell_activity: None,
             browser_artifacts: None,
@@ -4318,6 +4510,9 @@ mod tests {
                 "elevate": true
             },
             "prefetch": {
+                "elevate": true
+            },
+            "mplogs": {
                 "elevate": true
             },
             "wmi_repository": {
@@ -4374,6 +4569,10 @@ mod tests {
         );
         assert_eq!(
             request.prefetch.as_ref().map(|options| options.elevate),
+            Some(true)
+        );
+        assert_eq!(
+            request.mplogs.as_ref().map(|options| options.elevate),
             Some(true)
         );
         assert_eq!(
@@ -4440,6 +4639,25 @@ mod tests {
     }
 
     #[test]
+    fn collection_archive_request_json_round_trips_mplogs_worker_options() -> Result<()> {
+        let value = json!({
+            "volumes": ["C:"],
+            "output_zip": r"C:\temp\bundle.zip",
+            "mplogs": {
+                "elevate": true
+            }
+        });
+
+        let request: CollectionArchiveRequest = serde_json::from_value(value)?;
+
+        assert_eq!(
+            request.mplogs.as_ref().map(|options| options.elevate),
+            Some(true)
+        );
+        Ok(())
+    }
+
+    #[test]
     fn collection_archive_request_json_round_trips_scheduled_tasks_worker_options() -> Result<()> {
         let value = json!({
             "volumes": ["C:"],
@@ -4484,7 +4702,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_runtime_collector_count_includes_wmi_repository() {
+    fn selected_runtime_collector_count_includes_mplogs_and_wmi_repository() {
         let request = CollectionArchiveRequest {
             volumes: vec!["C:".to_string()],
             output_zip: PathBuf::from(r"C:\temp\bundle.zip"),
@@ -4494,6 +4712,7 @@ mod tests {
             evtx: None,
             srum: None,
             prefetch: None,
+            mplogs: Some(MpLogsCollectionOptions { elevate: false }),
             scheduled_tasks: None,
             powershell_activity: None,
             browser_artifacts: None,
@@ -4506,7 +4725,37 @@ mod tests {
             wmi_repository: Some(WmiRepositoryCollectionOptions { elevate: false }),
         };
 
-        assert_eq!(selected_runtime_collector_count(&request), 1);
+        assert_eq!(selected_runtime_collector_count(&request), 2);
+    }
+
+    #[test]
+    fn collection_archive_shares_vss_when_mplogs_and_registry_are_vss_backed() {
+        let request = CollectionArchiveRequest {
+            volumes: vec!["C:".to_string()],
+            output_zip: PathBuf::from(r"C:\temp\bundle.zip"),
+            staging_root: None,
+            usn: None,
+            registry: Some(RegistryCollectionOptions {
+                method: registry::RegistryCollectMethod::VssSnapshot,
+                elevate: false,
+            }),
+            evtx: None,
+            srum: None,
+            prefetch: None,
+            mplogs: Some(MpLogsCollectionOptions { elevate: false }),
+            scheduled_tasks: None,
+            powershell_activity: None,
+            browser_artifacts: None,
+            jump_lists: None,
+            lnk: None,
+            recycle_bin: None,
+            mft: None,
+            logfile: None,
+            indx: None,
+            wmi_repository: None,
+        };
+
+        assert!(should_share_vss_snapshot(&request));
     }
 
     #[test]

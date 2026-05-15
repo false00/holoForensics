@@ -6,7 +6,7 @@ It is built for investigators who need the speed of a local desktop tool, the re
 
 ## What It Delivers
 
-- **Live evidence packaging** for high-value Windows artifacts including Registry hives, Event Logs, Prefetch, Scheduled Tasks, PowerShell Activity, browser artifacts, Jump Lists, LNK Files, Recycle Bin, `$MFT`, `$LogFile`, INDX records, SRUM, and `$UsnJrnl`.
+- **Live evidence packaging** for high-value Windows artifacts including Registry hives, Event Logs, Prefetch, Microsoft Protection Logs, Scheduled Tasks, PowerShell Activity, browser artifacts, Jump Lists, LNK Files, Recycle Bin, `$MFT`, `$LogFile`, INDX records, SRUM, and `$UsnJrnl`.
 - **Offline collection parsing** for zipped evidence packages, with automatic artifact detection and native parser dispatch.
 - **Traceable output** through JSONL result files, parser logs, SHA-256 metadata, and run manifests.
 - **Desktop and CLI workflows** backed by the same Rust runtime.
@@ -82,6 +82,7 @@ cargo run -- ui
 | Registry Hives | Available | VSS snapshot hive and transaction-log collection with centralized metadata |
 | Windows Event Logs | Available | VSS snapshot copy of active and archived `.evtx` logs |
 | Prefetch | Available | VSS snapshot copy of `.pf`, `Layout.ini`, and `Ag*.db` with timestamps, file attributes, and SHA-256 metadata |
+| Microsoft Protection Logs | Available | VSS snapshot raw copy of `ProgramData\Microsoft\Windows Defender\Support\MPLog*.log` with SHA-256 verification and no registry or EVTX duplication |
 | Scheduled Tasks | Available | VSS snapshot raw copy of legacy `Windows\Tasks`, `SchedLgU.txt`, and modern `Windows\System32\Tasks` with directory metadata and SHA-256 verification |
 | WMI Repository | Available | VSS snapshot raw copy of `Repository*`, `AutoRecover`, and top-level `.mof` / `.mfl` WBEM content with directory metadata and SHA-256 verification |
 | PowerShell Activity | Available | VSS snapshot copy of PSReadLine history, PowerShell profile scripts, likely transcripts, and selected user PowerShell support files with skipped-file logging |

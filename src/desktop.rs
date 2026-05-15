@@ -93,6 +93,7 @@ const TRIAGE_COLLECTION_TITLES: &[&str] = &[
     "Prefetch",
     "$UsnJrnl",
     "Scheduled Tasks",
+    "Microsoft Protection Logs",
     "WMI Repository",
     "PowerShell Activity",
     "Browser Artifacts",
@@ -613,6 +614,7 @@ struct CollectionExecutionRequest {
     collect_evtx: bool,
     collect_srum: bool,
     collect_prefetch: bool,
+    collect_mplogs: bool,
     collect_scheduled_tasks: bool,
     collect_wmi_repository: bool,
     collect_powershell_activity: bool,
@@ -1691,6 +1693,11 @@ fn start_collection_run(app: &AppWindow, state: &Arc<Mutex<DesktopState>>) -> Re
                         .then_some(app::PrefetchCollectionOptions {
                             elevate: request.elevate,
                         }),
+                    mplogs: request
+                        .collect_mplogs
+                        .then_some(app::MpLogsCollectionOptions {
+                            elevate: request.elevate,
+                        }),
                     scheduled_tasks: request.collect_scheduled_tasks.then_some(
                         app::ScheduledTasksCollectionOptions {
                             elevate: request.elevate,
@@ -2242,6 +2249,7 @@ fn collect_collection_request(
         collect_evtx,
         collect_srum,
         collect_prefetch,
+        collect_mplogs,
         collect_scheduled_tasks,
         collect_wmi_repository,
         collect_powershell_activity,
@@ -2270,6 +2278,9 @@ fn collect_collection_request(
                 .any(|title| title == "Windows Event Logs"),
             selected_live_titles.iter().any(|title| title == "SRUM"),
             selected_live_titles.iter().any(|title| title == "Prefetch"),
+            selected_live_titles
+                .iter()
+                .any(|title| title == "Microsoft Protection Logs"),
             selected_live_titles
                 .iter()
                 .any(|title| title == "Scheduled Tasks"),
@@ -2303,6 +2314,7 @@ fn collect_collection_request(
         && !collect_evtx
         && !collect_srum
         && !collect_prefetch
+        && !collect_mplogs
         && !collect_scheduled_tasks
         && !collect_wmi_repository
         && !collect_powershell_activity
@@ -2352,6 +2364,7 @@ fn collect_collection_request(
         collect_evtx,
         collect_srum,
         collect_prefetch,
+        collect_mplogs,
         collect_scheduled_tasks,
         collect_wmi_repository,
         collect_powershell_activity,
@@ -3111,6 +3124,20 @@ fn expected_collection_artifacts(title: &str) -> Vec<(&'static str, &'static str
                 "Scheduled Tasks collection log",
             ),
         ],
+        "Microsoft Protection Logs" => vec![
+            (
+                "C/ProgramData/Microsoft/Windows Defender/Support/MPLog*.log",
+                "Microsoft Defender Support MPLog files preserved from the VSS snapshot",
+            ),
+            (
+                "$metadata/collectors/C/windows_mplogs/manifest.json",
+                "Microsoft Protection Logs collection manifest",
+            ),
+            (
+                "$metadata/collectors/C/windows_mplogs/collection.log",
+                "Microsoft Protection Logs collection log",
+            ),
+        ],
         "WMI Repository" => vec![
             (
                 "C/Windows/System32/wbem/Repository*/**/*",
@@ -3399,6 +3426,15 @@ fn artifact_detail_for_path(path: &str) -> String {
         "Legacy scheduled task artifact".to_string()
     } else if lower.ends_with("/windows/schedlgu.txt") {
         "Legacy Task Scheduler log".to_string()
+    } else if lower.contains("/programdata/microsoft/windows defender/support/")
+        && lower.ends_with(".log")
+        && lower
+            .rsplit('/')
+            .next()
+            .map(|name| name.starts_with("mplog"))
+            .unwrap_or(false)
+    {
+        "Microsoft Protection Log (MPLog) file".to_string()
     } else if lower.ends_with("/consolehost_history.txt") {
         "PowerShell PSReadLine history".to_string()
     } else if lower.ends_with("/profile.ps1")
@@ -3481,6 +3517,19 @@ fn artifact_name_for_path(path: &str) -> String {
         "jump_lists_manifest.jsonl".to_string()
     } else if lower.ends_with("/windows/schedlgu.txt") {
         "SchedLgU.txt".to_string()
+    } else if lower.contains("/programdata/microsoft/windows defender/support/")
+        && lower.ends_with(".log")
+        && lower
+            .rsplit('/')
+            .next()
+            .map(|name| name.starts_with("mplog"))
+            .unwrap_or(false)
+    {
+        path.rsplit('/')
+            .next()
+            .filter(|name| !name.is_empty())
+            .unwrap_or(path)
+            .to_string()
     } else if lower.contains("/windows/system32/tasks/") || lower.contains("/windows/tasks/") {
         path.rsplit('/')
             .next()
@@ -5795,6 +5844,9 @@ fn selected_runtime_collectors_label(request: &CollectionExecutionRequest) -> St
     if request.collect_prefetch {
         labels.push("prefetch");
     }
+    if request.collect_mplogs {
+        labels.push("mplogs");
+    }
     if request.collect_scheduled_tasks {
         labels.push("scheduled-tasks");
     }
@@ -5948,6 +6000,15 @@ fn build_collection_catalog_records() -> Vec<CollectionCatalogRecord> {
             "Scheduled tasks are a common persistence and execution mechanism with both legacy job files and modern XML-backed task definitions.",
             "Targets: C:\\Windows\\Tasks, C:\\Windows\\SchedLgU.txt, and C:\\Windows\\System32\\Tasks",
             "Included in Create Package today. The live Rust collector uses a VSS snapshot, copies legacy and modern task roots without parsing or event-log duplication, hashes source and destination bytes with SHA-256, and records directory and file metadata in the centralized manifest.",
+            true,
+        ),
+        CollectionCatalogRecord::new(
+            "Microsoft Protection Logs",
+            "Defender diagnostics",
+            "Available",
+            "Microsoft Defender support logs can preserve troubleshooting traces, engine activity details, signature and scan context, and other raw host-side diagnostics not captured by registry or EVTX coverage.",
+            "Targets: C:\\ProgramData\\Microsoft\\Windows Defender\\Support\\MPLog*.log from a VSS snapshot",
+            "Included in Create Package today. The live Rust collector uses a VSS snapshot, copies only MPLog*.log files from the Defender Support directory, skips registry and EVTX duplication already covered elsewhere, hashes source and destination bytes with SHA-256, and records file metadata in the centralized manifest.",
             true,
         ),
         CollectionCatalogRecord::new(
@@ -6535,6 +6596,26 @@ mod tests {
     }
 
     #[test]
+    fn mplogs_collection_catalog_record_is_live_and_describes_defender_support_targets() {
+        let records = build_collection_catalog_records();
+
+        let mplogs = records
+            .iter()
+            .find(|record| record.title == "Microsoft Protection Logs")
+            .expect("mplogs record should exist");
+
+        assert!(mplogs.live);
+        assert_eq!(mplogs.status, "Available");
+        assert!(
+            mplogs
+                .targets
+                .contains("Windows Defender\\Support\\MPLog*.log")
+        );
+        assert!(mplogs.note.contains("skips registry and EVTX duplication"));
+        assert!(mplogs.note.contains("SHA-256"));
+    }
+
+    #[test]
     fn wmi_repository_collection_catalog_record_is_live_and_describes_snapshot_targets() {
         let records = build_collection_catalog_records();
 
@@ -6677,6 +6758,40 @@ mod tests {
             details
                 .iter()
                 .any(|item| item.name.contains("windows_scheduled_tasks/manifest.json"))
+        );
+    }
+
+    #[test]
+    fn mplogs_collection_activity_details_show_expected_defender_support_artifacts() {
+        let record = super::CollectionActivityRecord {
+            title: "Microsoft Protection Logs".to_string(),
+            category: "Defender diagnostics".to_string(),
+            detail: "Microsoft Protection Logs collector is ready.".to_string(),
+            status: "Ready".to_string(),
+            tone: CollectionActivityTone::Ready,
+            active: false,
+            show_progress: false,
+            progress_value: 0.0,
+            progress_text: String::new(),
+            package_pending: false,
+        };
+
+        let details = build_collection_activity_details(Some(&record), None);
+
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("Windows Defender/Support/MPLog*.log"))
+        );
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("windows_mplogs/manifest.json"))
+        );
+        assert!(
+            details
+                .iter()
+                .any(|item| item.name.contains("windows_mplogs/collection.log"))
         );
     }
 
