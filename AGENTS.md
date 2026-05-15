@@ -45,6 +45,8 @@ This file is the canonical assistant-facing instruction surface for this reposit
 - Prepare the release changelog in-repo so the published GitHub release body is explicit instead of relying only on generated notes.
 - Draft release notes from the actual commit range since the previous release tag, not from memory or only the latest change. Compare the previous `vX.Y.Z` tag commit to the current unreleased state, review all commits in that range, and summarize the shipped changes from that history.
 - If the upcoming release also includes local uncommitted changes, fold those pending changes into the draft release notes before committing so the final tag reflects the full shipped delta from the previous release.
+- Treat `.github/release-notes/vX.Y.Z.md` as public release copy. Write it for end users and operators, describing only what shipped and what is new in the release.
+- Do not copy prompt wording, user-request phrasing, internal implementation constraints, validation steps, or other assistant-only process details into public release notes. Rewrite any relevant point as a product-facing change summary or omit it.
 - If the user asks to review the release copy before publishing, stop after drafting the version bump and changelog and wait for approval before any push.
 - Once the release is approved, commit the release changes, push `main`, create or update the matching `vX.Y.Z` git tag, and push that tag so the release workflow publishes the release.
 - Treat an explicit user request to release as approval to perform the required commit, `main` push, and release-tag push sequence after any requested review checkpoint is complete.
